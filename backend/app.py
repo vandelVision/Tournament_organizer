@@ -58,7 +58,7 @@ def signup():
         return jsonify({"error": "User with one of these details already exists"}), 409
     
     try:
-        db.user_details.update_one({
+        db.user_details.insert_one({
             {"$set":{
                 "username":data.get("username",""),
                 "email":data.get("email",""),
@@ -119,7 +119,7 @@ def host_signup():
         return jsonify({"error": "User with one of these details already exists"}), 409
     
     try:
-        db.host_details.update_one({
+        db.host_details.insert_one({
             {"$set":{
                 "username":data.get("username",""),
                 "email":data.get("email",""),
