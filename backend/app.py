@@ -20,7 +20,7 @@ db= client["tournament_organizer"]
 
 @app.before_request
 def global_auth_check():
-    exempt_routes = ['health']
+    exempt_routes = ['health','home']
     if request.endpoint in exempt_routes:
         return
     if request.method == "OPTIONS":
@@ -159,6 +159,11 @@ def host_login():
 
 @app.route("/health")
 def health():
+    return jsonify({"message": "API is running"}),200
+
+
+@app.route("/")
+def home():
     return jsonify({"message": "API is running"}),200
 
 
