@@ -107,7 +107,7 @@ const Navbar = ({ host = false }) => {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="absolute top-20 left-0 w-full bg-[#1B2430] flex flex-col items-center space-y-6 py-6 text-sm uppercase md:hidden z-10"
+          className="absolute top-[56px] left-0 w-full bg-[#1B2430] flex flex-col items-center space-y-6 py-6 text-sm uppercase md:hidden z-10"
         >
           <Link
             to="/"

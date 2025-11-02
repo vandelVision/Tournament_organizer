@@ -1,58 +1,43 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
+import { set, useForm } from "react-hook-form";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
+import { useUser } from "../context/UserContext";
+import { api } from "../services/api";
 
 export default function AuthPage() {
   const [mode, setMode] = useState("login");
-  const [formData, setFormData] = useState({
-    email: "",
-    mobile: "",
-    password: "",
-    confirmPassword: "",
-  });
+  const {
+    register,
+    handleSubmit,
+    watch,
+    reset,
+    formState: { errors },
+  } = useForm();
   const [error, setError] = useState("");
+  const { setUser } = useUser();
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+  const password = watch("password");
 
-    // Live validation
-    if (name === "confirmPassword" || name === "password") {
-      if (
-        (name === "confirmPassword" && value !== formData.password) ||
-        (name === "password" &&
-          formData.confirmPassword &&
-          formData.confirmPassword !== value)
-      ) {
-        setError("Passwords do not match");
-      } else {
-        setError("");
-      }
-    }
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (mode === "signup" && formData.password !== formData.confirmPassword) {
+  const onSubmit = async (data) => {
+    if (mode === "signup" && data.password !== data.confirmPassword) {
       setError("Passwords do not match");
       return;
     }
-
-    const payload = { ...formData, mode };
-    console.log("Submitted Data:", JSON.stringify(payload, null, 2));
-    alert(`✅ ${mode === "login" ? "Logged in" : "Signed up"} successfully!`);
     setError("");
+    if (mode === "signup") {
+      const res = await api.signupPlayer(data);
+      
+    }
+    console.log("Submitted Data:", data);
+    alert(`✅ ${mode === "login" ? "Logged in" : "Signed up"} successfully!`);
+    reset();
   };
 
   const toggleMode = () => {
     setMode((prev) => (prev === "login" ? "signup" : "login"));
-    setFormData({
-      email: "",
-      mobile: "",
-      password: "",
-      confirmPassword: "",
-    });
+    reset();
     setError("");
   };
 
@@ -88,7 +73,7 @@ export default function AuthPage() {
           <AnimatePresence mode="wait">
             <motion.form
               key={mode}
-              onSubmit={handleSubmit}
+              onSubmit={handleSubmit(onSubmit)}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
@@ -101,33 +86,57 @@ export default function AuthPage() {
                 </label>
                 <input
                   type="email"
-                  name="email"
+                  {...register("email", { required: "Email is required" })}
                   placeholder="you@example.com"
-                  value={formData.email}
-                  onChange={handleChange}
-                  required
                   className="w-full px-3 py-2 rounded-md bg-[#0D1117]/60 border border-[#ff4655]/40 focus:border-[#ff4655] outline-none text-white placeholder-gray-500 text-sm"
                 />
+                {errors.email && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {errors.email.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-gray-300 text-sm mb-1">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  {...register("username", { required: "Username is required" })}
+                  placeholder="Gamer123"
+                  className="w-full px-3 py-2 rounded-md bg-[#0D1117]/60 border border-[#ff4655]/40 focus:border-[#ff4655] outline-none text-white placeholder-gray-500 text-sm"
+                />
+                {errors.username && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {errors.username.message}
+                  </p>
+                )}
               </div>
 
               {mode === "signup" && (
-                <>
-                  <div>
-                    <label className="block text-gray-300 text-sm mb-1">
-                      Mobile Number
-                    </label>
-                    <input
-                      type="tel"
-                      name="mobile"
-                      placeholder="+1 555 123 4567"
-                      value={formData.mobile}
-                      onChange={handleChange}
-                      pattern="[0-9+\s-]{8,}"
-                      required
-                      className="w-full px-3 py-2 rounded-md bg-[#0D1117]/60 border border-[#ff4655]/40 focus:border-[#ff4655] outline-none text-white placeholder-gray-500 text-sm"
-                    />
-                  </div>
-                </>
+                <div>
+                  <label className="block text-gray-300 text-sm mb-1">
+                    Mobile Number
+                  </label>
+                  <input
+                    type="tel"
+                    {...register("phone", {
+                      required: "Mobile number is required",
+                      pattern: {
+                        value: /[0-9+\s-]{8,}/,
+                        message: "Enter a valid mobile number",
+                      },
+                    })}
+                    placeholder="9455566555"
+                    className="w-full px-3 py-2 rounded-md bg-[#0D1117]/60 border border-[#ff4655]/40 focus:border-[#ff4655] outline-none text-white placeholder-gray-500 text-sm"
+                  />
+                  {errors.mobile && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {errors.mobile.message}
+                    </p>
+                  )}
+                </div>
               )}
 
               <div>
@@ -136,13 +145,17 @@ export default function AuthPage() {
                 </label>
                 <input
                   type="password"
-                  name="password"
+                  {...register("password", {
+                    required: "Password is required",
+                  })}
                   placeholder="••••••••"
-                  value={formData.password}
-                  onChange={handleChange}
-                  required
                   className="w-full px-3 py-2 rounded-md bg-[#0D1117]/60 border border-[#ff4655]/40 focus:border-[#ff4655] outline-none text-white placeholder-gray-500 text-sm"
                 />
+                {errors.password && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {errors.password.message}
+                  </p>
+                )}
               </div>
 
               {mode === "signup" && (
@@ -152,17 +165,22 @@ export default function AuthPage() {
                   </label>
                   <input
                     type="password"
-                    name="confirmPassword"
+                    {...register("confirmPassword", {
+                      required: "Please confirm your password",
+                      validate: (value) =>
+                        value === password || "Passwords do not match",
+                    })}
                     placeholder="••••••••"
-                    value={formData.confirmPassword}
-                    onChange={handleChange}
-                    required
                     className={`w-full px-3 py-2 rounded-md bg-[#0D1117]/60 border ${
-                      error ? "border-red-500" : "border-[#ff4655]/40"
+                      error || errors.confirmPassword
+                        ? "border-red-500"
+                        : "border-[#ff4655]/40"
                     } focus:border-[#ff4655] outline-none text-white placeholder-gray-500 text-sm`}
                   />
-                  {error && (
-                    <p className="text-red-500 text-xs mt-1">{error}</p>
+                  {(error || errors.confirmPassword) && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {error || errors.confirmPassword?.message}
+                    </p>
                   )}
                 </div>
               )}

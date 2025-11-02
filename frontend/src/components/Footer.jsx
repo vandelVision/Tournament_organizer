@@ -54,7 +54,7 @@ const Footer = () => {
 
         {/* Copyright */}
         <div className="mt-6 border-t border-[#ffffff0a] pt-4">
-          <p className="text-center text-xs text-gray-500">Company Name © {new Date().getFullYear()}</p>
+          <p className="text-center text-xs text-gray-500">CritZone © {new Date().getFullYear()}</p>
         </div>
       </div>
     </footer>

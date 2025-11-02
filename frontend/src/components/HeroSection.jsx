@@ -9,7 +9,7 @@ export default function HeroSection() {
     <div className="relative min-h-screen overflow-x-hidden bg-gradient-to-b from-[#1B2430] via-[#212A37] to-[#0D1117] text-white font-orbitron flex flex-col justify-between">
       <Navbar />
       {/* Hero Section */}
-      <section className="flex flex-col sm:flex-row items-center justify-center flex-grow px-6 sm:px-10 gap-10 sm:gap-16 text-center sm:text-left z-10 relative">
+      <section className="flex flex-col sm:flex-row items-center justify-center flex-grow px-6 sm:px-10 gap-10 sm:gap-16 text-center sm:text-left z-10 relative pt-20">
         {/* Left Side */}
         <div className="flex flex-col items-center sm:items-end space-y-6 sm:w-1/3">
           <motion.h2

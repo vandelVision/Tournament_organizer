@@ -75,7 +75,7 @@ export default function Tournaments() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#1B2430] via-[#212A37] to-[#0D1117] text-white font-orbitron px-6 py-10">
+    <div className="min-h-screen bg-gradient-to-b from-[#1B2430] via-[#212A37] to-[#0D1117] text-white font-orbitron px-6 py-20">
       <Navbar />
 
       <motion.h1

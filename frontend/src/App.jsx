@@ -4,6 +4,8 @@ import TournamentPage from "./pages/TournamentPage";
 import Contact from "./pages/Contact";
 import LoginPage from "./pages/Login";
 import HostAuth from "./pages/HostAuth";
+import PlayerDashboard from "./components/player/PlayerDashboard";
+import HostDashboard from "./components/host/HostDashboard";
 
 const router = createBrowserRouter([
   {
@@ -26,6 +28,14 @@ const router = createBrowserRouter([
     path: "/access/hp-portal",
     element: <HostAuth />,
   },
+  {
+    path: "/player/:id/dashboard",
+    element: <PlayerDashboard />
+  },
+  {
+    path: "/host/:id/dashboard",
+    element: <HostDashboard />
+  }
 ]);
 
 function App() {

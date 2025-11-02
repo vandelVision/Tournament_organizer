@@ -9,9 +9,17 @@ const axiosInstance = axios.create({
 });
 
 export const api = {
-    loginUser: async (data)=>{
+    loginPlayer: async (data)=>{
         try {
             const response = await axiosInstance.post("/login", data)
+            return response.data
+        } catch (error) {
+            console.error('Login Error:', error.message);
+        }
+    },
+    signupPlayer: async (data)=>{
+        try {
+            const response = await axiosInstance.post("/signup", data)
             return response.data
         } catch (error) {
             console.error('Login Error:', error.message);

@@ -32,7 +32,7 @@ export default function Contact() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f1923] text-white flex flex-col overflow-hidden">
+    <div className="min-h-screen bg-[#0f1923] text-white flex flex-col overflow-hidden pt-16 md:pt-20">
       <Navbar />
       <section className="flex flex-col lg:flex-row items-center justify-center flex-grow px-6 py-10">
         {/* RIGHT FORM PANEL */}
