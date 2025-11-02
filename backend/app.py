@@ -59,12 +59,12 @@ def signup():
     
     try:
         db.user_details.insert_one({
-            {"$set":{
+            
                 "username":data.get("username",""),
                 "email":data.get("email",""),
                 "phone":data.get("phone",""),
                 "password": data.get("password","")
-            }}
+            
         })
 
         return jsonify({"status":"success","message":"Signup Successfull"}),201
@@ -120,13 +120,13 @@ def host_signup():
     
     try:
         db.host_details.insert_one({
-            {"$set":{
+            
                 "username":data.get("username",""),
                 "email":data.get("email",""),
                 "phone":data.get("phone",""),
                 "password": data.get("password",""),
                 "inviteCode": uuid.uuid4().hex[:12]
-            }}
+            
         })
 
         return jsonify({"status":"success","message":"Signup Successfull"}),201
