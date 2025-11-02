@@ -37,8 +37,8 @@ def global_auth_check():
 @app.route("/signup",methods=["POST","OPTIONS"])
 def signup():
     data = request.get_json()
-    """ username,email, mobile, password, The following infomation would be received """
-    required_keys = ["username","email","mobile","password"]
+    """ username,email, phone, password, The following infomation would be received """
+    required_keys = ["username","email","phone","password"]
     missing = [k for k in required_keys if k not in data]
 
     if missing:
@@ -50,7 +50,7 @@ def signup():
         "$or": [
             {"username": data["username"]},
             {"email": data["email"]},
-            {"mobile": data["mobile"]},
+            {"phone": data["phone"]},
         ]
     }
 
@@ -62,7 +62,7 @@ def signup():
             {"$set":{
                 "username":data.get("username",""),
                 "email":data.get("email",""),
-                "mobile":data.get("mobile",""),
+                "phone":data.get("phone",""),
                 "password": data.get("password","")
             }}
         })
@@ -98,8 +98,8 @@ def login():
 @app.route("/host_signup",methods=["POST","OPTIONS"])
 def host_signup():
     data = request.get_json()
-    """ username,email, mobile, password, The following infomation would be received """
-    required_keys = ["username","email","mobile","password"]
+    """ username,email, phone, password, The following infomation would be received """
+    required_keys = ["username","email","phone","password"]
     missing = [k for k in required_keys if k not in data]
 
     if missing:
@@ -111,7 +111,7 @@ def host_signup():
         "$or": [
             {"username": data["username"]},
             {"email": data["email"]},
-            {"mobile": data["mobile"]},
+            {"phone": data["phone"]},
         ]
     }
 
@@ -123,9 +123,9 @@ def host_signup():
             {"$set":{
                 "username":data.get("username",""),
                 "email":data.get("email",""),
-                "mobile":data.get("mobile",""),
+                "phone":data.get("phone",""),
                 "password": data.get("password",""),
-                "invite_code": uuid.uuid4().hex[:12]
+                "inviteCode": uuid.uuid4().hex[:12]
             }}
         })
 
@@ -168,5 +168,4 @@ def health():
 if __name__ == "__main__":
     app.run()
         
-
 
