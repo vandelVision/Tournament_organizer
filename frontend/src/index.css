@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #ff4655;
+  --color-dark: #0f1923;
+  --color-accent: #1f3540;
+  --font-orbitron: "Orbitron", sans-serif;
+  --font-rajdhani: "Rajdhani", sans-serif;
+}
+
+body {
+  @apply bg-[var(--color-dark)] text-white font-[var(--font-rajdhani)];
+}
+
