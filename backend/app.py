@@ -157,8 +157,8 @@ def host_login():
         return jsonify({"status": "error", "message": "Invalid email or password"}), 401
     
 
-@app.route("/")
-def home():
+@app.route("/health")
+def health():
     return jsonify({"message": "API is running"}),200
 
 
