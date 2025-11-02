@@ -20,7 +20,7 @@ db= client["tournament_organizer"]
 
 @app.before_request
 def global_auth_check():
-    exempt_routes = ['home']
+    exempt_routes = ['health']
     if request.endpoint in exempt_routes:
         return
     if request.method == "OPTIONS":
@@ -168,4 +168,5 @@ def health():
 if __name__ == "__main__":
     app.run()
         
+
 
