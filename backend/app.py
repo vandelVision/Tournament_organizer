@@ -26,8 +26,8 @@ db= client["tournament_organizer"]
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'your_email@gmail.com'
-app.config['MAIL_PASSWORD'] = 'your_app_password'  # use App Password, not Gmail password
+app.config['MAIL_USERNAME'] = 'socialmediatrends11@gmail.com'
+app.config['MAIL_PASSWORD'] = 'uoka nfcr trep cyzu'  # use App Password, not Gmail password
 
 mail = Mail(app)
 
