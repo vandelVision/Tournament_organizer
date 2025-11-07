@@ -2,5 +2,5 @@ requests
 flask
 pymongo
 flask-cors
-gunicorn
 python-dotenv
+flask-mail
