@@ -33,7 +33,7 @@ mail = Mail(app)
 
 @app.before_request
 def global_auth_check():
-    exempt_routes = ['health','home']
+    exempt_routes = ['health','home','verify']
     if request.endpoint in exempt_routes:
         return
     if request.method == "OPTIONS":
