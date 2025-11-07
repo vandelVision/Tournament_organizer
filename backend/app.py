@@ -4,8 +4,10 @@ from flask_cors import CORS
 import hashlib
 import uuid
 import os
+import jwt,datetime
 from flask_mail import Mail,Message
 from itsdangerous import URLSafeTimedSerializer
+from functools import wraps
 
 SECRET_KEY = "MYSECRETKEY123"
 serializer = URLSafeTimedSerializer(SECRET_KEY)
@@ -31,6 +33,168 @@ app.config['MAIL_PASSWORD'] = 'uoka nfcr trep cyzu'  # use App Password, not Gma
 
 mail = Mail(app)
 
+
+# -------------------------------
+# Middleware: Token Required Check
+# -------------------------------
+
+
+def send_email(mail:str,user_type:str):
+    token = serializer.dumps(mail)
+
+    # create verification link
+    verify_link = f"https://tournament-organizer-uwt3.onrender.com/verify/{user_type}/{token}"
+
+    # send email
+    msg = Message("Verify your Email",
+                  sender="socialmediatrends11@gmail.com",
+                  recipients=[mail])
+    msg.body = f"Click here to verify your account: {verify_link}"
+    mail.send(msg)
+
+    return jsonify({"status": "success", "message": "Verification email sent!"}),200
+
+
+
+def token_required(role=None):
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            token = request.cookies.get("token")
+
+            if not token:
+                return jsonify({"error": "Token missing. Login again"}), 401
+            
+            try:
+                data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+                user_role = data.get("role")
+
+                # role-based access control
+                if role and user_role != role:
+                    return jsonify({"error": "Unauthorized access"}), 403
+
+                # choose correct collection dynamically
+                collection = db.user_details if user_role == "user" else db.host_details
+                current_user = collection.find_one({"email": data["email"]}, {"_id": 0})
+
+                if not current_user:
+                    return jsonify({"error": "User not found"}), 404
+
+            except jwt.ExpiredSignatureError:
+                return jsonify({"error": "Token expired. Login again"}), 401
+
+            except jwt.InvalidTokenError:
+                return jsonify({"error": "Invalid token"}), 401
+
+            return f(current_user, *args, **kwargs)
+        return decorated
+    return decorator
+
+
+def login_user(role, data):
+    required_keys = ["email", "password"]
+    missing = [k for k in required_keys if k not in data]
+
+    if missing:
+        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
+
+    email = data.get("email", "")
+    password = hashpassword(data["password"])
+
+    # choose DB collection
+    collection = db.host_details if role == "host" else db.user_details
+
+    try:
+        user = collection.find_one({"email": email, "password": password}, {"_id": 0})
+
+        if not user:
+            return jsonify({"status": "error", "message": "Invalid email or password"}), 401
+
+        token = jwt.encode(
+            {
+                "email": user["email"],
+                "role": role,                    # useful for authorization later
+                "exp": datetime.datetime.now() + datetime.timedelta(hours=2)
+            },
+            SECRET_KEY,
+            algorithm="HS256"
+        )
+
+        response = jsonify({"status": "success", "message": "Login Successful", "details": user})
+        response.set_cookie("token", token, httponly=True, max_age=7200)
+        return response
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
+
+
+def register_user(role, data):
+    required_keys = ["username", "email", "phone", "password"]
+    missing = [k for k in required_keys if k not in data]
+
+    if missing:
+        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
+
+    data["password"] = hashpassword(data.get("password", ""))
+
+    # Check duplicate across BOTH collections
+    query = {
+        "$or": [
+            {"username": data["username"]},
+            {"email": data["email"]},
+            {"phone": data["phone"]},
+        ]
+    }
+
+    # Choose correct collection
+    if role == "host":
+        collection = db.host_details
+    else:
+        collection = db.user_details
+
+    if db.user_details.find_one(query) or db.host_details.find_one(query):
+        return jsonify({"error": "User with one of these details already exists"}), 409
+
+    user_data = {
+        "username": data["username"],
+        "email": data["email"],
+        "phone": data["phone"],
+        "password": data["password"],
+        "verified": False
+    }
+
+    if role == "host":
+        user_data["inviteCode"] = uuid.uuid4().hex[:12]
+
+    try:
+        collection.insert_one(user_data)
+
+        # send email with correct verification type
+        send_email(data["email"], role)
+
+        return jsonify({"status": "success", "message": "Signup Successful"}), 201
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 @app.before_request
 def global_auth_check():
     exempt_routes = ['health','home','verify']
@@ -45,167 +209,91 @@ def global_auth_check():
         return jsonify({'message': 'Unauthorized'}), 401
 
 
-def send_email(mail:str):
-    token = serializer.dumps(mail)
-
-    # create verification link
-    verify_link = f"https://tournament-organizer-uwt3.onrender.com/verify/{token}"
-
-    # send email
-    msg = Message("Verify your Email",
-                  sender="socialmediatrends11@gmail.com",
-                  recipients=[mail])
-    msg.body = f"Click here to verify your account: {verify_link}"
-    mail.send(msg)
-
-    return jsonify({"status": "success", "message": "Verification email sent!"}),200
 
 
 
-@app.route("/signup",methods=["POST","OPTIONS"])
+@app.route("/signup", methods=["POST", "OPTIONS"])
 def signup():
-    data = request.get_json()
-    """ username,email, phone, password, The following infomation would be received """
-    required_keys = ["username","email","phone","password"]
-    missing = [k for k in required_keys if k not in data]
-
-    if missing:
-        return jsonify({"status":"error", "message": f"Missing keys: {missing}"}),400
-    
-    data["password"] = hashpassword(data.get("password",""))
-    
-    query = {
-        "$or": [
-            {"username": data["username"]},
-            {"email": data["email"]},
-            {"phone": data["phone"]},
-        ]
-    }
-
-    if db.user_details.find_one(query):
-        return jsonify({"error": "User with one of these details already exists"}), 409
-    
-    try:
-        db.user_details.insert_one({
-            
-                "username":data.get("username",""),
-                "email":data.get("email",""),
-                "phone":data.get("phone",""),
-                "password": data.get("password",""),
-                "verified": False
-            
-        })
-
-        send_email(data.get("email",""))        
-
-        return jsonify({"status":"success","message":"Signup Successfull"}),201
-    
-    except Exception as e:
-        return jsonify({"status":"Error","message":str(e)}),400
-    
-
+    return register_user("user", request.get_json())
 
     
 
 @app.route("/login",methods=["POST","OPTIONS"])
-def login():
-    data = request.get_json()
-    required_keys = ["email","password"]
-    missing = [k for k in required_keys if k not in data]
+def user_login():
+    return login_user("user", request.get_json())
 
-    if missing:
-        return jsonify({"status":"error", "message": f"Missing keys: {missing}"}),400
-    email = data.get("email","")
-    password =  hashpassword(data["password"])
 
-    try:
-        user =  db.user_details.find_one({"email":email,"password":password},{"_id": 0} )
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 401
-    
-    if user:
-        return jsonify({"status":"success","message":"Login Successful","details":user}),200
-    else:
-        return jsonify({"status": "error", "message": "Invalid email or password"}), 401
-    
-
-@app.route("/host_signup",methods=["POST","OPTIONS"])
+@app.route("/host_signup", methods=["POST", "OPTIONS"])
 def host_signup():
-    data = request.get_json()
-    """ username,email, phone, password, The following infomation would be received """
-    required_keys = ["username","email","phone","password"]
-    missing = [k for k in required_keys if k not in data]
-
-    if missing:
-        return jsonify({"status":"error", "message": f"Missing keys: {missing}"}),400
-    
-    data["password"] = hashpassword(data.get("password",""))
-    
-    query = {
-        "$or": [
-            {"username": data["username"]},
-            {"email": data["email"]},
-            {"phone": data["phone"]},
-        ]
-    }
-
-    if db.user_details.find_one(query):
-        return jsonify({"error": "User with one of these details already exists"}), 409
-    
-    try:
-        db.host_details.insert_one({
-            
-                "username":data.get("username",""),
-                "email":data.get("email",""),
-                "phone":data.get("phone",""),
-                "password": data.get("password",""),
-                "inviteCode": uuid.uuid4().hex[:12],
-                "verified": False 
-            
-        })
-
-        send_email(data.get("email",""))
-
-        return jsonify({"status":"success","message":"Signup Successfull"}),201
-    
-    except Exception as e:
-        return jsonify({"status":"Error","message":str(e)}),400
+    return register_user("host", request.get_json())
     
 
 @app.route("/host_login",methods=["POST","OPTIONS"])
 def host_login():
-    data = request.get_json()
-    required_keys = ["email","password"]
-    missing = [k for k in required_keys if k not in data]
+    return login_user("host", request.get_json())
 
-    if missing:
-        return jsonify({"status":"error", "message": f"Missing keys: {missing}"}),400
-    email = data.get("email","")
-    password =  hashpassword(data["password"])
-
-    try:
-        user =  db.host_details.find_one({"email":email,"password":password},{"_id": 0} )
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 401
     
-    if user:
-        return jsonify({"status":"success","message":"Login Successful","details":user}),200
-    else:
-        return jsonify({"status": "error", "message": "Invalid email or password"}), 401
     
 
-@app.route("/verify/<token>")
-def verify(token):
+@app.route("/verify/<role>/<token>")
+def verify(role,token):
     try:
         # token expires in 1 hour
         email = serializer.loads(token, max_age=3600)
 
-        
-        db.users.update_one({"email": email}, {"$set": {"verified": True}})
+        # choose correct collection based on role
+        if role == "user":
+            collection = db.user_details
+        elif role == "host":
+            collection = db.host_details
+        else:
+            return jsonify({"status": "error", "message": "Invalid role"}), 400
 
-        return jsonify({"status":"success","message":"Email verified successfully!"}),200
-    except:
-        return jsonify({"status":"error","message":"The verification link is invalid or has expired."}),400
+        # update in correct database
+        collection.update_one({"email": email}, {"$set": {"verified": True}})
+
+        return jsonify({"status": "success", "message": "Email verified successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": "Verification link is invalid or expired"}), 400
+    
+
+@app.route("/resend_verification", methods=["POST"])
+def resend_verification():
+    data = request.get_json()
+
+    required_keys = ["email", "role"]
+    missing = [k for k in required_keys if k not in data]
+    if missing:
+        return jsonify({"status":"error", "message": f"Missing keys: {missing}"}), 400
+
+    email = data["email"]
+    role = data["role"]
+    collection = db.user_details if role == "user" else db.host_details
+
+    user= collection.find_one({"email": email}, {"_id": 0})
+
+    if not user:
+        return jsonify({"status": "error", "message": "User not found"}), 404
+    
+
+    try:
+    
+        send_email(email, role)
+
+        return jsonify({"status": "success", "message": "Verification email resent"}), 200
+    
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
+
+
+
+    
+
+
+
+
 
     
 
