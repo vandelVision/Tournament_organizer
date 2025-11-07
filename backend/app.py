@@ -49,11 +49,11 @@ def send_email(mail:str):
     token = serializer.dumps(mail)
 
     # create verification link
-    verify_link = f"http://127.0.0.1:5000/verify/{token}"
+    verify_link = f"https://tournament-organizer-uwt3.onrender.com/verify/{token}"
 
     # send email
     msg = Message("Verify your Email",
-                  sender="your_email@gmail.com",
+                  sender="socialmediatrends11@gmail.com",
                   recipients=[mail])
     msg.body = f"Click here to verify your account: {verify_link}"
     mail.send(msg)
