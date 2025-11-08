@@ -117,7 +117,7 @@ def login_user(role, data):
         )
 
         response = jsonify({"status": "success", "message": "Login Successful", "details": user,"isAuthenticated":True})
-        response.set_cookie("token", token, httponly=True, max_age=7200, samesite="Lax",secure=False,path="/")
+        response.set_cookie("token", token, httponly=True, max_age=7200,secure=False,path="/")
         return response
 
     except Exception as e:
@@ -287,7 +287,7 @@ def resend_verification():
 @token_required
 def logout():
     response = jsonify({"status": "success", "message": "Logged out successfully"})
-    response.set_cookie("token", "", httponly=True,expires=0, samesite="Lax",secure=False,path="/")
+    response.set_cookie("token", "", httponly=True,expires=0,secure=False,path="/")
     return response
     
 
