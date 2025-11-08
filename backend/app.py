@@ -1,5 +1,5 @@
 from  pymongo import MongoClient
-from  flask import Flask, request, jsonify,redirect
+from  flask import Flask, request, jsonify,redirect,g
 from flask_cors import CORS
 import hashlib
 import uuid
@@ -56,40 +56,42 @@ def send_email(mail:str,user_type:str):
 
 
 
-def token_required(role=None):
-    def decorator(f):
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            token = request.cookies.get("token")
 
-            if not token:
-                return jsonify({"status":"error","message": "Token missing. Login again"}), 401
-            
-            try:
-                data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-                user_role = data.get("role")
 
-                # role-based access control
-                if role and user_role != role:
-                    return jsonify({"status":"error","message":"Unauthorized access"}), 403
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.cookies.get("token")
 
-                # choose correct collection dynamically
-                collection = db.user_details if user_role == "user" else db.host_details
-                current_user = collection.find_one({"email": data["email"]}, {"_id": 0})
+        if not token:
+            return jsonify({"status":"error","message": "Token missing. Login again"}), 401
+        
+        try:
+            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            user_role = data.get("role")
 
-                if not current_user:
-                    return jsonify({"status":"error","message": "User not found"}), 404
+            # Dynamically choose collection based on token role
+            if user_role == "user":
+                collection = db.user_details
+            elif user_role == "host":
+                collection = db.host_details
+            else:
+                return jsonify({"status":"error","message":"Unknown role"}), 403
 
-            except jwt.ExpiredSignatureError:
-                return jsonify({"status":"error","message": "Token expired. Login again"}), 401
+            g.current_user = collection.find_one({"email": data["email"]}, {"_id": 0})
 
-            except jwt.InvalidTokenError:
-                return jsonify({"status":"error","message": "Invalid token"}), 401
+            if not g.current_user:
+                return jsonify({"status":"error","message":"User not found"}), 404
 
-            return f(current_user, *args, **kwargs)
-        return decorated
-    return decorator
+        except jwt.ExpiredSignatureError:
+            return jsonify({"status":"error","message": "Token expired. Login again"}), 401
 
+        except jwt.InvalidTokenError:
+            return jsonify({"status":"error","message": "Invalid token"}), 401
+
+        return f(*args, **kwargs)
+
+    return decorated
 
 def login_user(role, data):
     required_keys = ["email", "password"]
@@ -288,11 +290,11 @@ def resend_verification():
 
 
 @app.route("/logout", methods=["POST"])
-@token_required()
+@token_required
 def logout():
     token = request.cookies.get("token")
-    response = jsonify({"status": "success", "message": "Logged out successfully","token":token})
-    #response.set_cookie("token", "", expires=0)
+    response = jsonify({"status": "success", "message": "Logged out successfully"})
+    response.set_cookie("token", "", expires=0)
     return response
     
 
