@@ -19,7 +19,7 @@ def hashpassword(pwd:str):
 
 
 app = Flask(__name__)
-CORS(app) 
+CORS(app,supports_credentials=True) 
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db= client["tournament_organizer"]
@@ -121,7 +121,7 @@ def login_user(role, data):
         )
 
         response = jsonify({"status": "success", "message": "Login Successful", "details": user,"isAuthenticated":True})
-        response.set_cookie("token", token, httponly=True, max_age=7200)
+        response.set_cookie("token", token, httponly=True, max_age=7200, samesite=None,)
         return response
 
     except Exception as e:
