@@ -121,7 +121,7 @@ def login_user(role, data):
         )
 
         response = jsonify({"status": "success", "message": "Login Successful", "details": user,"isAuthenticated":True})
-        response.set_cookie("token", token, httponly=True, max_age=7200, samesite=None,)
+        response.set_cookie("token", token, httponly=False, max_age=7200, samesite=None,)
         return response
 
     except Exception as e:
@@ -290,7 +290,7 @@ def resend_verification():
 def logout():
     token = request.cookies.get("token")
     response = jsonify({"status": "success", "message": "Logged out successfully","token":token})
-    response.set_cookie("token", "", expires=0)
+    #response.set_cookie("token", "", expires=0)
     return response
     
 
