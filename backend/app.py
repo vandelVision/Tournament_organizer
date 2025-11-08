@@ -39,8 +39,8 @@ mail = Mail(app)
 # -------------------------------
 
 
-def send_email(mail:str,user_type:str):
-    token = serializer.dumps(mail)
+def send_email(email:str,user_type:str):
+    token = serializer.dumps(email)
 
     # create verification link
     verify_link = f"https://tournament-organizer-uwt3.onrender.com/verify/{user_type}/{token}"
@@ -156,7 +156,7 @@ def register_user(role, data):
         collection = db.user_details
 
     if db.user_details.find_one(query) or db.host_details.find_one(query):
-        return jsonify({"error": "User with one of these details already exists"}), 409
+        return jsonify({"status":"error","message":"User with one of these details already exists"}), 409
 
     user_data = {
         "username": data["username"],
