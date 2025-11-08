@@ -292,9 +292,8 @@ def resend_verification():
 @app.route("/logout", methods=["POST"])
 @token_required
 def logout():
-    token = request.cookies.get("token")
     response = jsonify({"status": "success", "message": "Logged out successfully"})
-    response.set_cookie("token", "", expires=0)
+    response.set_cookie("token", "", httponly=True,expires=0, samesite="None",secure=True)
     return response
     
 
