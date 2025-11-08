@@ -167,7 +167,7 @@ def register_user(role, data):
         
 
         # send email with correct verification type
-        res = send_email(data["email"], role)
+        #res = send_email(data["email"], role)
         collection.insert_one(user_data)
         return jsonify({"status": "success", "message": "verification email resent"}), 201
 
@@ -275,7 +275,7 @@ def resend_verification():
 
     try:
     
-        res = send_email(email, role)
+        #res = send_email(email, role)
         return jsonify({"status": "success", "message": "Verification email resent"}), 200
     
     except Exception as e:
