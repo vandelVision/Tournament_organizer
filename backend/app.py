@@ -45,10 +45,10 @@ def send_email(email, user_type):
 
     with smtplib.SMTP("smtp.gmail.com", 587) as server:
         server.starttls()
-        server.login("socialmediatrends11@gmail.com", "uoka nfcr trep cyzu")
+        server.login("socialmediatrends11@gmail.com", "uokanfcrtrepcyzu")
         server.send_message(msg)
 
-    return jsonify({"status":"success","message":"Verification email sent!"}), 200
+    return {"status":"success","message":"Verification email sent!"}
 
 
 
@@ -164,11 +164,11 @@ def register_user(role, data):
         user_data["inviteCode"] = uuid.uuid4().hex[:12]
 
     try:
-        collection.insert_one(user_data)
+        
 
         # send email with correct verification type
         res = send_email(data["email"], role)
-
+        collection.insert_one(user_data)
         return jsonify({"status": "success", "message": "verification email resent"}), 201
 
     except Exception as e:
