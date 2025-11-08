@@ -121,7 +121,7 @@ def login_user(role, data):
         )
 
         response = jsonify({"status": "success", "message": "Login Successful", "details": user,"isAuthenticated":True})
-        response.set_cookie("token", token, httponly=False, max_age=7200, samesite=None,)
+        response.set_cookie("token", token, httponly=False, max_age=7200, samesite=None,secure=True)
         return response
 
     except Exception as e:
@@ -177,6 +177,7 @@ def register_user(role, data):
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
+
 
 
 
