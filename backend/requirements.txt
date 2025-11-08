@@ -3,6 +3,6 @@ flask
 pymongo
 flask-cors
 python-dotenv
-flask-mail
+smtplib
 gunicorn
 pyjwt

@@ -5,8 +5,10 @@ import hashlib
 import uuid
 import os
 import jwt,datetime
-from flask_mail import Mail,Message
+
 from itsdangerous import URLSafeTimedSerializer
+import smtplib
+from email.mime.text import MIMEText
 from functools import wraps
 
 SECRET_KEY = "MYSECRETKEY123"
@@ -25,13 +27,6 @@ client = MongoClient(MONGO_URI)
 db= client["tournament_organizer"]
 
 
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'socialmediatrends11@gmail.com'
-app.config['MAIL_PASSWORD'] = 'uoka nfcr trep cyzu'  # use App Password, not Gmail password
-
-mail = Mail(app)
 
 
 # -------------------------------
@@ -39,22 +34,21 @@ mail = Mail(app)
 # -------------------------------
 
 
-def send_email(email:str,user_type:str):
+def send_email(email, user_type):
     token = serializer.dumps(email)
-
-    # create verification link
     verify_link = f"https://tournament-organizer-uwt3.onrender.com/verify/{user_type}/{token}"
 
-    # send email
-    msg = Message("Verify your Email",
-                  sender="socialmediatrends11@gmail.com",
-                  recipients=[mail])
-    msg.body = f"Click here to verify your account: {verify_link}"
-    mail.send(msg)
+    msg = MIMEText(f"Click here to verify: {verify_link}")
+    msg["Subject"] = "Verify Email"
+    msg["From"] = "socialmediatrends11@gmail.com"
+    msg["To"] = email
 
-    return jsonify({"status": "success", "message": "Verification email sent!"}),200
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login("socialmediatrends11@gmail.com", "uoka nfcr trep cyzu")
+        server.send_message(msg)
 
-
+    return jsonify({"status":"success","message":"Verification email sent!"}), 200
 
 
 
@@ -173,9 +167,9 @@ def register_user(role, data):
         collection.insert_one(user_data)
 
         # send email with correct verification type
-        send_email(data["email"], role)
+        res = send_email(data["email"], role)
 
-        return jsonify({"status": "success", "message": "Signup Successful"}), 201
+        return jsonify({"status": "success", "message": "verification email resent"}), 201
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
@@ -281,7 +275,7 @@ def resend_verification():
 
     try:
     
-        send_email(email, role)
+        res = send_email(email, role)
         return jsonify({"status": "success", "message": "Verification email resent"}), 200
     
     except Exception as e:
