@@ -19,7 +19,7 @@ def hashpassword(pwd:str):
 
 
 app = Flask(__name__)
-CORS(app,supports_credentials=True) 
+CORS(app,supports_credentials=True,origins=["http://localhost:5173"]) 
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db= client["tournament_organizer"]
