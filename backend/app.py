@@ -1,5 +1,5 @@
 from  pymongo import MongoClient
-from  flask import Flask, request, jsonify
+from  flask import Flask, request, jsonify,redirect
 from flask_cors import CORS
 import hashlib
 import uuid
@@ -63,7 +63,7 @@ def token_required(role=None):
             token = request.cookies.get("token")
 
             if not token:
-                return jsonify({"error": "Token missing. Login again"}), 401
+                return jsonify({"status":"error","message": "Token missing. Login again"}), 401
             
             try:
                 data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
@@ -71,20 +71,20 @@ def token_required(role=None):
 
                 # role-based access control
                 if role and user_role != role:
-                    return jsonify({"error": "Unauthorized access"}), 403
+                    return jsonify({"status":"error","message":"Unauthorized access"}), 403
 
                 # choose correct collection dynamically
                 collection = db.user_details if user_role == "user" else db.host_details
                 current_user = collection.find_one({"email": data["email"]}, {"_id": 0})
 
                 if not current_user:
-                    return jsonify({"error": "User not found"}), 404
+                    return jsonify({"status":"error","message": "User not found"}), 404
 
             except jwt.ExpiredSignatureError:
-                return jsonify({"error": "Token expired. Login again"}), 401
+                return jsonify({"status":"error","message": "Token expired. Login again"}), 401
 
             except jwt.InvalidTokenError:
-                return jsonify({"error": "Invalid token"}), 401
+                return jsonify({"status":"error","message": "Invalid token"}), 401
 
             return f(current_user, *args, **kwargs)
         return decorated
@@ -105,7 +105,7 @@ def login_user(role, data):
     collection = db.host_details if role == "host" else db.user_details
 
     try:
-        user = collection.find_one({"email": email, "password": password}, {"_id": 0})
+        user = collection.find_one({"email": email, "password": password}, {"_id": 0,"password": 0})
 
         if not user:
             return jsonify({"status": "error", "message": "Invalid email or password"}), 401
@@ -120,7 +120,7 @@ def login_user(role, data):
             algorithm="HS256"
         )
 
-        response = jsonify({"status": "success", "message": "Login Successful", "details": user})
+        response = jsonify({"status": "success", "message": "Login Successful", "details": user,"isAuthenticated":True})
         response.set_cookie("token", token, httponly=True, max_age=7200)
         return response
 
@@ -161,7 +161,7 @@ def register_user(role, data):
         "email": data["email"],
         "phone": data["phone"],
         "password": data["password"],
-        "verified": False
+        "Verified": False
     }
 
     if role == "host":
@@ -250,12 +250,11 @@ def verify(role,token):
             return jsonify({"status": "error", "message": "Invalid role"}), 400
 
         # update in correct database
-        collection.update_one({"email": email}, {"$set": {"verified": True}})
+        collection.update_one({"email": email}, {"$set": {"Verified": True}})
 
-        return jsonify({"status": "success", "message": "Email verified successfully"}), 200
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": "Verification link is invalid or expired"}), 400
+        return redirect("https://myapp.com/login?status=Verified")
+    except:
+        return redirect("https://myapp.com/login?status=expired")
     
 
 @app.route("/resend_verification", methods=["POST"])
@@ -280,7 +279,6 @@ def resend_verification():
     try:
     
         send_email(email, role)
-
         return jsonify({"status": "success", "message": "Verification email resent"}), 200
     
     except Exception as e:
@@ -288,7 +286,11 @@ def resend_verification():
     
 
 
-
+@app.route("/logout", methods=["POST"])
+def logout():
+    response = jsonify({"status": "success", "message": "Logged out successfully"})
+    response.set_cookie("token", "", expires=0)
+    return response
     
 
 
