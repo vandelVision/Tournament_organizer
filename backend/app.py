@@ -178,7 +178,7 @@ def signup():
 ######health check route#####
 
 @app.route("/health", methods=["GET"])
-def health_check():
+def health():
     return jsonify({"status":"success","message":"API is healthy"}), 200
 
 @app.route("/", methods=["GET"])
