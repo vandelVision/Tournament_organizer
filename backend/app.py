@@ -151,7 +151,7 @@ def login():
     email = data.get("email")
     pwd = hashpassword(data.get("password", ""))
 
-    user = db.user_details.find_one({"email": email, "password": pwd})
+    user = db.user_details.find_one({"email": email, "password": pwd},{"_id":0})
     if not user:
         return jsonify({"status": "error", "message": "Invalid user credentials"}), 401
 
@@ -180,7 +180,7 @@ def host_login():
     email = data.get("email")
     pwd = hashpassword(data.get("password", ""))
 
-    host = db.host_details.find_one({"email": email, "password": pwd})
+    host = db.host_details.find_one({"email": email, "password": pwd},{"_id":0})
     if not host:
         return jsonify({"status": "error", "message": "Invalid host credentials"}), 401
 
