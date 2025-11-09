@@ -85,7 +85,7 @@ def login():
         login_user(user,remember=True)
         session["role"] = "user"
         user_data["_id"] = str(user_data["_id"])
-        return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True}), 200
+        return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True,"role":"user"}), 200
 
     else:
         return jsonify({"status":"error","message": "Invalid credentials"}), 401
@@ -101,7 +101,7 @@ def host_login():
         login_user(user,remember=True)
         session["role"] = "host"
         user_data["_id"] = str(user_data["_id"])
-        return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True}), 200
+        return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True,"role":"host"}), 200
 
     else:
         return jsonify({"status":"error","message": "Invalid credentials"}), 401
@@ -201,7 +201,8 @@ def me():
         return jsonify({
             "status": "success",
             "isAuthenticated": True,
-            "details": data
+            "details": data,
+            "role": user.role
         }), 200
     else:
         return jsonify({"status": "error", "message": "User not found"}), 404
