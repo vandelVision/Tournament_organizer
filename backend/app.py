@@ -179,7 +179,7 @@ def signup():
 
 
 ##refresh routes #########################
-@app.route("/auth/me", methods=["POST", "OPTIONS"])
+@app.route("/auth/me", methods=["GET", "OPTIONS"])
 @login_required
 def me():
     user = current_user
