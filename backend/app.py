@@ -85,7 +85,7 @@ def login():
         return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True}), 200
 
     else:
-        return jsonify({"status":"fail","message": "Invalid credentials"}), 401
+        return jsonify({"status":"error","message": "Invalid credentials"}), 401
 
 @app.route("/host_login", methods=["POST"])
 def host_login():
@@ -101,7 +101,7 @@ def host_login():
         return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True}), 200
 
     else:
-        return jsonify({"status":"fail","message": "Invalid credentials"}), 401
+        return jsonify({"status":"error","message": "Invalid credentials"}), 401
     
 
 @app.route("/logout", methods=["POST", "OPTIONS"])
