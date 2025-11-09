@@ -62,14 +62,17 @@ class User(UserMixin):
 @login_manager.user_loader
 def load_user(user_id):
         role = session.get("role")
-        if role == "host":
-            data = db.host_details.find_one({"_id": ObjectId(user_id)})
-        else:
-            data = db.user_details.find_one({"_id": ObjectId(user_id)})
+        if role:
+            if role == "host":
+                data = db.host_details.find_one({"_id": ObjectId(user_id)})
+            else:
+                data = db.user_details.find_one({"_id": ObjectId(user_id)})
 
-        if data:
-            return User(data, role)
-        return None
+            if data:
+                return User(data, role)
+            return None
+        else:
+            return None
 
 @app.route("/auth/login", methods=["POST"])
 def login():
@@ -182,17 +185,26 @@ def signup():
 @app.route("/auth/me", methods=["GET", "OPTIONS"])
 @login_required
 def me():
+    if not current_user.is_authenticated:
+        return jsonify({
+            "status": "error",
+            "isAuthenticated": False,
+            "message": "Not logged in"
+        }), 401
     user = current_user
     if user.role == "user":
         data = db.user_details.find_one({"_id": ObjectId(user.id)})
     else:
         data = db.host_details.find_one({"_id": ObjectId(user.id)})
-    data["_id"] = str(data["_id"])
-    return jsonify({
-        "status": "success",
-        "isAuthenticated": True,
-        "details": data
-    }), 200
+    if data:
+        data["_id"] = str(data["_id"])
+        return jsonify({
+            "status": "success",
+            "isAuthenticated": True,
+            "details": data
+        }), 200
+    else:
+        return jsonify({"status": "error", "message": "User not found"}), 404
     
     
 ######health check route#####
@@ -208,6 +220,14 @@ def health():
 def home():
     return jsonify({"status":"success","message":"Welcome to the Tournament Organizer API"}), 200
 
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    return jsonify({
+        "status": "error",
+        "isAuthenticated": False,
+        "message": "User not logged in"
+    }), 401
 
 
 if __name__ == "__main__":
