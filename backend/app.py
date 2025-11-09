@@ -87,6 +87,75 @@ def logout():
     logout_user()
     session.pop("role", None)
     return jsonify({"status": "success", "message": "Logged out successfully", "isAuthenticated": False}), 200
+
+
+##################helper functions####################
+
+def register_user(role, data):
+    required_keys = ["username", "email", "phone", "password"]
+    missing = [k for k in required_keys if k not in data]
+
+    if missing:
+        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
+
+    data["password"] = hashpassword(data.get("password", ""))
+
+    # Check duplicate across BOTH collections
+    query = {
+        "$or": [
+            {"username": data["username"]},
+            {"email": data["email"]},
+            {"phone": data["phone"]},
+        ]
+    }
+
+    # Choose correct collection
+    if role == "host":
+        collection = db.host_details
+    else:
+        collection = db.user_details
+
+    if db.user_details.find_one(query) or db.host_details.find_one(query):
+        return jsonify({"status":"error","message":"User with one of these details already exists"}), 409
+
+    user_data = {
+        "username": data["username"],
+        "email": data["email"],
+        "phone": data["phone"],
+        "password": data["password"],
+        "Verified": False
+    }
+
+    if role == "host":
+        user_data["inviteCode"] = uuid.uuid4().hex[:12]
+
+    try:
+        
+
+        # send email with correct verification type
+        #res = send_email(data["email"], role)
+        collection.insert_one(user_data)
+        return jsonify({"status": "success", "message": "verification email resent"}), 201
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+#####Signup routes#####
+
+@app.route("/host_signup", methods=["POST", "OPTIONS"])
+def host_signup():
+    return register_user("host", request.get_json())
+
+@app.route("/signup", methods=["POST", "OPTIONS"])
+def signup():
+    return register_user("user", request.get_json())
+
+
+if __name__ == "__main__":
+    app.run()
+
+
     
 
 
