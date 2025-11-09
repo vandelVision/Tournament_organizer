@@ -129,7 +129,8 @@ def login_user(role, data):
         max_age=7200,
         secure=True,
         path="/",
-        samesite='None'  # The key fix
+        samesite='None',  # The key fix,
+        domain="superlative-cascaron-a3921e.netlify.app"
         )
         return response
 
@@ -192,7 +193,10 @@ def register_user(role, data):
 
 
 
-
+@app.after_request
+def apply_cors(response):
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 
 
@@ -245,7 +249,8 @@ def auth_verify():
         max_age=7200,
         secure=True,
         path="/",
-        samesite="None"  # The key fix
+        samesite="None",
+        domain="superlative-cascaron-a3921e.netlify.app"  # The key fix
         )
     return response
 
@@ -325,7 +330,8 @@ def logout():
         expires=0,       # Set to past date
         secure=True,
         path="/",
-        samesite='None'
+        samesite='None',
+        domain="superlative-cascaron-a3921e.netlify.app"
     )
     return response
     
