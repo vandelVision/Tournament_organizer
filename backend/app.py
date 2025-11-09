@@ -29,7 +29,7 @@ app.config.update(
 
 CORS(app,
      supports_credentials=True,
-     origins=["https://superlative-cascaron-a3921e.netlify.app"],
+     origins=["https://superlative-cascaron-a3921e.netlify.app","http://localhost:5173"],
      methods=["GET","POST","PUT","DELETE"]
 )
 
@@ -71,7 +71,7 @@ def load_user(user_id):
             return User(data, role)
         return None
 
-@app.route("/login", methods=["POST"])
+@app.route("/auth/login", methods=["POST"])
 def login():
     email = request.json["email"]
     password = request.json["password"]
@@ -87,7 +87,7 @@ def login():
     else:
         return jsonify({"status":"error","message": "Invalid credentials"}), 401
 
-@app.route("/host_login", methods=["POST"])
+@app.route("/auth/host_login", methods=["POST"])
 def host_login():
     email = request.json["email"]
     password = request.json["password"]
@@ -104,7 +104,7 @@ def host_login():
         return jsonify({"status":"error","message": "Invalid credentials"}), 401
     
 
-@app.route("/logout", methods=["POST", "OPTIONS"])
+@app.route("/auth/logout", methods=["POST", "OPTIONS"])
 @login_required
 def logout():
     logout_user()
@@ -166,16 +166,39 @@ def register_user(role, data):
 
 #####Signup routes#####
 
-@app.route("/host_signup", methods=["POST", "OPTIONS"])
+@app.route("/auth/host_signup", methods=["POST", "OPTIONS"])
 def host_signup():
     return register_user("host", request.get_json())
 
-@app.route("/signup", methods=["POST", "OPTIONS"])
+@app.route("/auth/signup", methods=["POST", "OPTIONS"])
 def signup():
     return register_user("user", request.get_json())
+###################################################
 
 
+
+
+##refresh routes #########################
+@app.route("/auth/me", methods=["POST", "OPTIONS"])
+@login_required
+def me():
+    user = current_user
+    if user.role == "user":
+        data = db.user_details.find_one({"_id": ObjectId(user.id)})
+    else:
+        data = db.host_details.find_one({"_id": ObjectId(user.id)})
+    data["_id"] = str(data["_id"])
+    return jsonify({
+        "status": "success",
+        "isAuthenticated": True,
+        "details": data
+    }), 200
+    
+    
 ######health check route#####
+
+
+
 
 @app.route("/health", methods=["GET"])
 def health():
