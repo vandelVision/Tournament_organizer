@@ -34,6 +34,21 @@ CORS(app,
 )
 
 
+######beefore request for global auth check#########
+@app.before_request
+def global_auth_check():
+    exempt_routes = ['health','home','verify']
+    if request.endpoint in exempt_routes:
+        return
+    if request.method == "OPTIONS":
+        return '', 200
+    api_key = request.headers.get('x-api-key')
+    if api_key:
+        api_key = hashlib.sha256(api_key.encode()).hexdigest()
+    if not api_key or api_key != EXPECTED_API_KEY:
+        return jsonify({'message': 'Unauthorized'}), 401
+
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 
@@ -64,7 +79,7 @@ def login():
     user_data = db.user_details.find_one({"email": email, "password": hashed_pwd})
     if user_data:
         user = User(user_data, "user")
-        login_user(user)
+        login_user(user,remember=True)
         session["role"] = "user"
         user_data["_id"] = str(user_data["_id"])
         return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True}), 200
@@ -80,7 +95,7 @@ def host_login():
     user_data = db.host_details.find_one({"email": email, "password": hashed_pwd})
     if user_data:
         user = User(user_data, "host")
-        login_user(user)
+        login_user(user,remember=True)
         session["role"] = "host"
         user_data["_id"] = str(user_data["_id"])
         return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True}), 200
@@ -158,6 +173,16 @@ def host_signup():
 @app.route("/signup", methods=["POST", "OPTIONS"])
 def signup():
     return register_user("user", request.get_json())
+
+
+@app.route("/health", methods=["GET"])
+def health_check():
+    return jsonify({"status":"success","message":"API is healthy"}), 200
+
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"status":"success","message":"Welcome to the Tournament Organizer API"}), 200
+
 
 
 if __name__ == "__main__":
