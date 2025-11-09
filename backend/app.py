@@ -23,7 +23,7 @@ def hashpassword(pwd:str):
 app = Flask(__name__)
 CORS(app, 
     supports_credentials=True,
-    origins=["http://localhost:3000"],  # Your frontend URL
+    origins=["http://localhost:3000","https://superlative-cascaron-a3921e.netlify.app"],  # Your frontend URL
     methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type", "Authorization"]
 )
@@ -127,9 +127,9 @@ def login_user(role, data):
         token,
         httponly=True,
         max_age=7200,
-        secure=False,
+        secure=True,
         path="/",
-        samesite='Lax'  # The key fix
+        samesite='None'  # The key fix
         )
         return response
 
@@ -241,9 +241,9 @@ def auth_verify():
     response.set_cookie(
         "token",
         token,
-        httponly=False,
+        httponly=True,
         max_age=7200,
-        secure=False,
+        secure=True,
         path="/",
         samesite="None"  # The key fix
         )
@@ -323,9 +323,9 @@ def logout():
         "",              # Empty value
         httponly=True,
         expires=0,       # Set to past date
-        secure=False,
+        secure=True,
         path="/",
-        samesite='Lax'
+        samesite='None'
     )
     return response
     
