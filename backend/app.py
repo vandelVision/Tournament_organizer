@@ -138,7 +138,7 @@ def register_user(role, data):
     else:
         collection = db.user_details
 
-    if db.user_details.find_one(query) or db.host_details.find_one(query):
+    if collection.find_one(query):
         return jsonify({"status":"error","message":"User with one of these details already exists"}), 409
 
     user_data = {
@@ -162,7 +162,7 @@ def register_user(role, data):
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
-
+####--------------------------------------------------------------------------------#######
 
 #####Signup routes#####
 
@@ -174,6 +174,8 @@ def host_signup():
 def signup():
     return register_user("user", request.get_json())
 
+
+######health check route#####
 
 @app.route("/health", methods=["GET"])
 def health_check():
