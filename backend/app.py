@@ -1,54 +1,68 @@
-from  pymongo import MongoClient
-from  flask import Flask, request, jsonify,redirect,g
+from flask import Flask, request, jsonify, redirect, g
 from flask_cors import CORS
-import hashlib
-import uuid
-import os
-import jwt,datetime
-
+from pymongo import MongoClient
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from itsdangerous import URLSafeTimedSerializer
-import smtplib
+import hashlib, uuid, smtplib, os, datetime
 from email.mime.text import MIMEText
-from functools import wraps
 
 SECRET_KEY = "MYSECRETKEY123"
 serializer = URLSafeTimedSerializer(SECRET_KEY)
-EXPECTED_API_KEY =os.getenv("EXPECTED_API_KEY")
-
+EXPECTED_API_KEY = os.getenv("EXPECTED_API_KEY")
 
 def hashpassword(pwd:str):
     return hashlib.sha256(pwd.encode()).hexdigest()
 
-
 app = Flask(__name__)
-CORS(app, 
-    supports_credentials=True,
-    origins=["http://localhost:3000","https://superlative-cascaron-a3921e.netlify.app"],  # Your frontend URL
-    methods=["GET", "POST", "PUT", "DELETE"],
-   #allow_headers=["Content-Type", "Authorization","x-api-key"]
+app.secret_key = SECRET_KEY
+
+CORS(app,
+     supports_credentials=True,
+     origins=["https://superlative-cascaron-a3921e.netlify.app"],
+     methods=["GET","POST","PUT","DELETE"]
 )
+
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
-db= client["tournament_organizer"]
+db = client["tournament_organizer"]
+
+# --------------------
+# Flask-Login Setup
+# --------------------
+login_manager = LoginManager(app)
+login_manager.login_view = "login"  # default if not authenticated
 
 
+# --------------------
+# User Model Wrapper
+# --------------------
+class User(UserMixin):
+    def __init__(self, email, role):
+        self.id = email
+        self.role = role
+
+@login_manager.user_loader
+def load_user(email):
+    user = db.user_details.find_one({"email": email}) or db.host_details.find_one({"email": email})
+    if not user:
+        return None
+    role = "user" if db.user_details.find_one({"email": email}) else "host"
+    return User(email, role)
 
 
-# -------------------------------
-# Middleware: Token Required Check
-# -------------------------------
-
-
+# -------------------
+# EMAIL VERIFICATION
+# -------------------
 def send_email(email, user_type):
     token = serializer.dumps(email)
-    verify_link = f"https://tournament-organizer-uwt3.onrender.com/verify/{user_type}/{token}"
+    link = f"https://tournament-organizer-uwt3.onrender.com/verify/{user_type}/{token}"
 
-    msg = MIMEText(f"Click here to verify: {verify_link}")
+    msg = MIMEText(f"Click to verify: {link}")
     msg["Subject"] = "Verify Email"
     msg["From"] = "socialmediatrends11@gmail.com"
     msg["To"] = email
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+    with smtplib.SMTP("smtp.gmail.com",587) as server:
         server.starttls()
         server.login("socialmediatrends11@gmail.com", "uokanfcrtrepcyzu")
         server.send_message(msg)
@@ -56,306 +70,161 @@ def send_email(email, user_type):
     return {"status":"success","message":"Verification email sent!"}
 
 
-
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.cookies.get("token")
-
-        if not token:
-            return jsonify({"status":"error","message": "Token missing. Login again"}), 401
-        
-        try:
-            data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            user_role = data.get("role")
-
-            # Dynamically choose collection based on token role
-            if user_role == "user":
-                collection = db.user_details
-            elif user_role == "host":
-                collection = db.host_details
-            else:
-                return jsonify({"status":"error","message":"Unknown role"}), 403
-
-            g.current_user = collection.find_one({"email": data["email"]}, {"_id": 0})
-
-            if not g.current_user:
-                return jsonify({"status":"error","message":"User not found"}), 404
-
-        except jwt.ExpiredSignatureError:
-            return jsonify({"status":"error","message": "Token expired. Login again"}), 401
-
-        except jwt.InvalidTokenError:
-            return jsonify({"status":"error","message": "Invalid token"}), 401
-
-        return f(*args, **kwargs)
-
-    return decorated
-
-def login_user(role, data):
-    required_keys = ["email", "password"]
-    missing = [k for k in required_keys if k not in data]
-
-    if missing:
-        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
-
-    email = data.get("email", "")
-    password = hashpassword(data["password"])
-
-    # choose DB collection
-    collection = db.host_details if role == "host" else db.user_details
-
-    try:
-        user = collection.find_one({"email": email, "password": password}, {"_id": 0,"password": 0})
-
-        if not user:
-            return jsonify({"status": "error", "message": "Invalid email or password"}), 401
-
-        token = jwt.encode(
-            {
-                "email": user["email"],
-                "role": role,                    # useful for authorization later
-                "exp": datetime.datetime.now() + datetime.timedelta(hours=2)
-            },
-            SECRET_KEY,
-            algorithm="HS256"
-        )
-
-        response = jsonify({"status": "success", "message": "Login Successful", "details": user,"isAuthenticated":True})
-        response.set_cookie(
-        "token",
-        token,
-        httponly=True,
-        max_age=7200,
-        secure=True,
-        path="/",
-        samesite='None',  # The key fix,
-        domain="superlative-cascaron-a3921e.netlify.app"
-        )
-        return response
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    
-
-
-def register_user(role, data):
-    required_keys = ["username", "email", "phone", "password"]
-    missing = [k for k in required_keys if k not in data]
-
-    if missing:
-        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
-
-    data["password"] = hashpassword(data.get("password", ""))
-
-    # Check duplicate across BOTH collections
-    query = {
-        "$or": [
-            {"username": data["username"]},
-            {"email": data["email"]},
-            {"phone": data["phone"]},
-        ]
-    }
-
-    # Choose correct collection
-    if role == "host":
-        collection = db.host_details
-    else:
-        collection = db.user_details
-
-    if db.user_details.find_one(query) or db.host_details.find_one(query):
-        return jsonify({"status":"error","message":"User with one of these details already exists"}), 409
-
-    user_data = {
-        "username": data["username"],
-        "email": data["email"],
-        "phone": data["phone"],
-        "password": data["password"],
-        "Verified": False
-    }
-
-    if role == "host":
-        user_data["inviteCode"] = uuid.uuid4().hex[:12]
-
-    try:
-        
-
-        # send email with correct verification type
-        #res = send_email(data["email"], role)
-        collection.insert_one(user_data)
-        return jsonify({"status": "success", "message": "verification email resent"}), 201
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
-
-
-
-
-
-
-@app.after_request
-def apply_cors(response):
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
-
-
-
-
-
-
-
-
-
-
-
-
+# -----------
+# MIDDLEWARE
+# -----------
 @app.before_request
-def global_auth_check():
-    exempt_routes = ['health','home','verify']
-    if request.endpoint in exempt_routes:
+def api_key_check():
+    exempt = ["home","health","verify","login","signup","host_login","host_signup","resend_verification"]
+    if request.endpoint in exempt or request.method=="OPTIONS":
         return
-    if request.method == "OPTIONS":
-        return '', 200
-    api_key = request.headers.get('x-api-key')
-    if api_key:
-        api_key = hashlib.sha256(api_key.encode()).hexdigest()
-    if not api_key or api_key != EXPECTED_API_KEY:
-        return jsonify({'message': 'Unauthorized'}), 401
+
+    api_key = request.headers.get("x-api-key")
+    if not api_key:
+        return jsonify({"message":"Unauthorized"}),401
+
+    hashed = hashlib.sha256(api_key.encode()).hexdigest()
+    if hashed != EXPECTED_API_KEY:
+        return jsonify({"message":"Unauthorized"}),401
 
 
-
-
-
-@app.route("/signup", methods=["POST", "OPTIONS"])
+# -----------------
+# AUTH ROUTES
+# -----------------
+@app.route("/signup", methods=["POST"])
 def signup():
-    return register_user("user", request.get_json())
+    data = request.get_json()
+    required = ["username","email","phone","password"]
+    if any(k not in data for k in required):
+        return jsonify({"status":"error","message":"Missing fields"}),400
 
-    
+    data["password"] = hashpassword(data["password"])
 
-@app.route("/login",methods=["POST","OPTIONS"])
-def user_login():
-    return login_user("user", request.get_json())
+    if db.user_details.find_one({"email":data["email"]}) or db.host_details.find_one({"email":data["email"]}):
+        return jsonify({"status":"error","message":"User already exists"}),409
 
-@app.route("/auth-verify", methods=["GET","OPTIONS"])
-@token_required
+    db.user_details.insert_one({
+        **data,
+        "Verified": False
+    })
+
+    # send_email(data["email"], "user")
+    return jsonify({"status":"success","message":"Registered! Verify email"}),201
+
+
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json()
+    email = data.get("email")
+    pwd = hashpassword(data.get("password",""))
+
+    user = db.user_details.find_one({"email":email,"password":pwd}) or db.host_details.find_one({"email":email,"password":pwd})
+    if not user:
+        return jsonify({"status":"error","message":"Invalid credentials"}),401
+
+    role = "user" if db.user_details.find_one({"email":email}) else "host"
+
+    login_user(User(email, role), remember=True)
+
+    return jsonify({"status":"success","message":"Login successful","details":user,"isAuthenticated":True})
+
+
+@app.route("/auth-verify", methods=["GET"])
+@login_required
 def auth_verify():
-    token = request.cookies.get("token")
-    user = g.current_user
-    response =  jsonify({"status": "success", "message": "User is authenticated", "details": user,"isAuthenticated":True})
-    response.set_cookie(
-        "token",
-        token,
-        httponly=True,
-        max_age=7200,
-        secure=True,
-        path="/",
-        samesite="None",
-        domain="superlative-cascaron-a3921e.netlify.app"  # The key fix
-        )
-    return response
+    return jsonify({
+        "status":"success",
+        "isAuthenticated":True,
+        "email":current_user.id,
+        "role":current_user.role
+    }),200
 
 
+@app.route("/logout", methods=["POST"])
+@login_required
+def logout():
+    logout_user()
+    return jsonify({"status":"success","message":"Logged out"}),200
 
-@app.route("/host_signup", methods=["POST", "OPTIONS"])
+
+# --------------------
+# HOST SIGNUP / LOGIN
+# --------------------
+@app.route("/host_signup", methods=["POST"])
 def host_signup():
-    return register_user("host", request.get_json())
-    
+    data = request.get_json()
+    required = ["username","email","phone","password"]
+    if any(k not in data for k in required):
+        return jsonify({"status":"error","message":"Missing fields"}),400
 
-@app.route("/host_login",methods=["POST","OPTIONS"])
+    data["password"] = hashpassword(data["password"])
+
+    if db.user_details.find_one({"email":data["email"]}) or db.host_details.find_one({"email":data["email"]}):
+        return jsonify({"status":"error","message":"User exists"}),409
+
+    db.host_details.insert_one({
+        **data,
+        "Verified": False,
+        "inviteCode": uuid.uuid4().hex[:12]
+    })
+
+    # send_email(data["email"], "host")
+    return jsonify({"status":"success","message":"Registered as host"}),201
+
+
+@app.route("/host_login", methods=["POST"])
 def host_login():
-    return login_user("host", request.get_json())
+    return login()
 
-    
-    
 
+# --------------------
+# EMAIL VERIFY ROUTE
+# --------------------
 @app.route("/verify/<role>/<token>")
-def verify(role,token):
+def verify(role, token):
     try:
-        # token expires in 1 hour
         email = serializer.loads(token, max_age=3600)
-
-        # choose correct collection based on role
-        if role == "user":
-            collection = db.user_details
-        elif role == "host":
-            collection = db.host_details
-        else:
-            return jsonify({"status": "error", "message": "Invalid role"}), 400
-
-        # update in correct database
-        collection.update_one({"email": email}, {"$set": {"Verified": True}})
-
-        return redirect("https://myapp.com/login?status=Verified")
+        col = db.user_details if role=="user" else db.host_details
+        col.update_one({"email":email},{"$set":{"Verified":True}})
+        return redirect("https://myapp.com/login?verified=true")
     except:
-        return redirect("https://myapp.com/login?status=expired")
-    
+        return redirect("https://myapp.com/login?expired=true")
+
 
 @app.route("/resend_verification", methods=["POST"])
 def resend_verification():
     data = request.get_json()
+    email = data.get("email")
+    role = data.get("role")
 
-    required_keys = ["email", "role"]
-    missing = [k for k in required_keys if k not in data]
-    if missing:
-        return jsonify({"status":"error", "message": f"Missing keys: {missing}"}), 400
+    col = db.user_details if role=="user" else db.host_details
+    if not col.find_one({"email":email}):
+        return jsonify({"status":"error","message":"User not found"}),404
 
-    email = data["email"]
-    role = data["role"]
-    collection = db.user_details if role == "user" else db.host_details
-
-    user= collection.find_one({"email": email}, {"_id": 0})
-
-    if not user:
-        return jsonify({"status": "error", "message": "User not found"}), 404
-    
-
-    try:
-    
-        #res = send_email(email, role)
-        return jsonify({"status": "success", "message": "Verification email resent"}), 200
-    
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-    
+    # send_email(email, role)
+    return jsonify({"status":"success","message":"Verification email resent"}),200
 
 
-@app.route("/logout", methods=["POST"])
-@token_required
-def logout():
-    response = jsonify({"status": "success", "message": "Logged out successfully"})
-    response.set_cookie(
-        "token",
-        "",              # Empty value
-        httponly=True,
-        expires=0,       # Set to past date
-        secure=True,
-        path="/",
-        samesite='None',
-        domain="superlative-cascaron-a3921e.netlify.app"
-    )
-    return response
-    
+# --------------------
+# PROTECTED SAMPLE
+# --------------------
+@app.route("/protected-data")
+@login_required
+def protected():
+    return jsonify({"message":"You are logged in","email":current_user.id,"role":current_user.role})
 
 
-
-
-
-    
-
+# --------------------
+# BASE ROUTES
+# --------------------
 @app.route("/health")
 def health():
-    return jsonify({"message": "API is running"}),200
-
+    return jsonify({"message":"API running"}),200
 
 @app.route("/")
 def home():
-    return jsonify({"message": "API is running"}),200
+    return jsonify({"message":"API running"}),200
 
-
-
-    
 
 if __name__ == "__main__":
     app.run()
-        
-
