@@ -32,23 +32,23 @@ export default function Contact() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f1923] text-white flex flex-col overflow-hidden pt-16 md:pt-20">
+    <div className="min-h-screen bg-[#0f1923] text-white flex flex-col">
       <Navbar />
-      <section className="flex flex-col lg:flex-row items-center justify-center flex-grow px-6 py-10">
+      <section className="flex flex-col lg:flex-row items-center justify-center flex-1 px-6 py-6 pt-28">
         {/* RIGHT FORM PANEL */}
         <motion.div
           initial={{ opacity: 0, x: 50 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8 }}
-          className="w-full lg:w-2/3 bg-[#121418] rounded-2xl shadow-[0_0_25px_#ff4655] p-8 sm:p-10"
+          className="w-full max-w-3xl bg-[#121418] rounded-2xl shadow-[0_0_25px_#ff4655] p-6 sm:p-8"
         >
-          <h2 className="text-3xl sm:text-4xl font-bold text-[#ff4655] font-orbitron mb-6 text-center lg:text-left">
+          <h2 className="text-2xl sm:text-3xl font-bold text-[#ff4655] font-orbitron mb-4 text-center lg:text-left">
             Fill Out the Form
           </h2>
 
           <form
             onSubmit={handleSubmit}
-            className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-sm sm:text-base"
+            className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm sm:text-base"
           >
             <div>
               <label htmlFor="name" className="block mb-1 text-gray-300">
@@ -142,7 +142,7 @@ export default function Contact() {
                 value={form.message}
                 onChange={handleChange}
                 required
-                rows="4"
+                rows="3"
                 placeholder="Your Message"
                 className="w-full bg-[#0f1923] rounded-md px-3 py-2 outline-none border border-gray-700 focus:border-[#ff4655] transition-all resize-none"
               />
@@ -152,7 +152,7 @@ export default function Contact() {
               whileHover={{ scale: 1.05, boxShadow: "0 0 20px #ff4655" }}
               whileTap={{ scale: 0.97 }}
               type="submit"
-              className="sm:col-span-2 mt-2 bg-[#ff4655] text-white font-bold py-2 rounded-md uppercase tracking-wide transition-all text-sm sm:text-base"
+              className="sm:col-span-2 mt-1 bg-[#ff4655] text-white font-bold py-2 rounded-md uppercase tracking-wide transition-all text-sm sm:text-base"
             >
               Send Message
             </motion.button>

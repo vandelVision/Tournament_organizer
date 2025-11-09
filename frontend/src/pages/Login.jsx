@@ -1,13 +1,18 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { set, useForm } from "react-hook-form";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import { useUser } from "../context/UserContext";
 import { api } from "../services/api";
+import Loader from "../components/Loader";
+import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 export default function AuthPage() {
   const [mode, setMode] = useState("login");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
   const {
     register,
     handleSubmit,
@@ -15,36 +20,66 @@ export default function AuthPage() {
     reset,
     formState: { errors },
   } = useForm();
-  const [error, setError] = useState("");
-  const { setUser } = useUser();
+  const { setUser, setIsAuthenticated, isAuthenticated } = useUser();
+
+  // If already authenticated, redirect away from login/signup page
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate("/");
+    }
+  }, [isAuthenticated, navigate]);
 
   const password = watch("password");
 
   const onSubmit = async (data) => {
     if (mode === "signup" && data.password !== data.confirmPassword) {
-      setError("Passwords do not match");
+      toast.error("Passwords do not match", { duration: 3000 });
       return;
     }
-    setError("");
-    if (mode === "signup") {
-      const res = await api.signupPlayer(data);
-      
+    try {
+      if (mode === "signup") {
+        setLoading(true);
+        const res = await api.signupPlayer(data);
+        if (res.status === "success") {
+          toast.success("Signed up successfully!");
+          setMode("login");
+          console.log("Signup User data response:", res);
+        }
+        setLoading(false);
+      } else {
+        setLoading(true);
+        const res = await api.loginPlayer(data);
+        if (res.status === "success") {
+          setUser(res.details);
+          setIsAuthenticated(res.isAuthenticated);
+          toast.success(res.message);
+        }
+        console.log("Login User data response:", res);
+        setLoading(false);
+        navigate("/");
+      }
+    } catch (error) {
+      console.error("Error during authentication:", error);
+      toast.error("Authentication failed. Please try again.", {
+        duration: 3000,
+      });
+      setLoading(false);
     }
-    console.log("Submitted Data:", data);
-    alert(`✅ ${mode === "login" ? "Logged in" : "Signed up"} successfully!`);
     reset();
   };
 
   const toggleMode = () => {
     setMode((prev) => (prev === "login" ? "signup" : "login"));
     reset();
-    setError("");
   };
 
   return (
     <div>
       <Navbar />
-      <div className="relative min-h-screen flex flex-col justify-center items-center bg-gradient-to-b from-[#1B2430] via-[#212A37] to-[#0D1117] text-white font-orbitron overflow-hidden px-4">
+      <div className="relative min-h-screen flex flex-col pt-28 justify-center items-center bg-gradient-to-b from-[#1B2430] via-[#212A37] to-[#0D1117] text-white font-orbitron overflow-hidden px-4">
+        {/* Show loader overlay when loading */}
+        {loading && <Loader />}
+
         {/* Animated red glow */}
         <motion.div
           className="absolute w-[350px] h-[350px] rounded-full bg-red-500/20 blur-3xl -z-10"
@@ -97,22 +132,26 @@ export default function AuthPage() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-gray-300 text-sm mb-1">
-                  Username
-                </label>
-                <input
-                  type="text"
-                  {...register("username", { required: "Username is required" })}
-                  placeholder="Gamer123"
-                  className="w-full px-3 py-2 rounded-md bg-[#0D1117]/60 border border-[#ff4655]/40 focus:border-[#ff4655] outline-none text-white placeholder-gray-500 text-sm"
-                />
-                {errors.username && (
-                  <p className="text-red-500 text-xs mt-1">
-                    {errors.username.message}
-                  </p>
-                )}
-              </div>
+              {mode === "signup" && (
+                <div>
+                  <label className="block text-gray-300 text-sm mb-1">
+                    Username
+                  </label>
+                  <input
+                    type="text"
+                    {...register("username", {
+                      required: "Username is required",
+                    })}
+                    placeholder="Gamer123"
+                    className="w-full px-3 py-2 rounded-md bg-[#0D1117]/60 border border-[#ff4655]/40 focus:border-[#ff4655] outline-none text-white placeholder-gray-500 text-sm"
+                  />
+                  {errors.username && (
+                    <p className="text-red-500 text-xs mt-1">
+                      {errors.username.message}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {mode === "signup" && (
                 <div>
@@ -172,14 +211,14 @@ export default function AuthPage() {
                     })}
                     placeholder="••••••••"
                     className={`w-full px-3 py-2 rounded-md bg-[#0D1117]/60 border ${
-                      error || errors.confirmPassword
+                      errors.confirmPassword
                         ? "border-red-500"
                         : "border-[#ff4655]/40"
                     } focus:border-[#ff4655] outline-none text-white placeholder-gray-500 text-sm`}
                   />
-                  {(error || errors.confirmPassword) && (
+                  {errors.confirmPassword && (
                     <p className="text-red-500 text-xs mt-1">
-                      {error || errors.confirmPassword?.message}
+                      {errors.confirmPassword.message}
                     </p>
                   )}
                 </div>

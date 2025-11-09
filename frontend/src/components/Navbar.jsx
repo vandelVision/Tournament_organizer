@@ -2,21 +2,52 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { api } from "../services/api";
+import { useUser } from "../context/UserContext";
+import toast from "react-hot-toast";
+import Loader from "./Loader";
 
 const Navbar = ({ host = false }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { isAuthenticated, setUser, loading, setLoading, setIsAuthenticated } =
+    useUser();
   const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    setLoading(true);
+    try {
+      const res = await api.logoutPlayer();
+      if (res.status === "success") {
+        toast.success(res.message, { duration: 3000 });
+        setUser(null);
+        setIsAuthenticated(false);
+        navigate("/login");
+        console.log("Logout response:", res);
+      }
+    } catch (error) {
+      console.log("Error logging out:", error.message);
+      toast.error("Logout failed. Please try again.", { duration: 3000 });
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
-    return () => window.removeEventListener('scroll', onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   return (
-  <nav className={`fixed top-0 left-0 right-0 w-full flex justify-between items-center px-6 md:px-10 py-4 md:py-6 z-40 transition-colors duration-300 border-b ${scrolled ? 'bg-[#0b0f13]/60 backdrop-blur-md border-white/5' : 'bg-transparent border-transparent'}`}>
+    <nav
+      className={`fixed top-0 left-0 right-0 w-full flex justify-between items-center px-6 md:px-10 py-4 md:py-6 z-40 transition-colors duration-300 border-b ${
+        scrolled
+          ? "bg-[#0b0f13]/60 backdrop-blur-md border-white/5"
+          : "bg-transparent border-transparent"
+      }`}
+    >
+      {loading && <Loader />}
       {/* Logo */}
       <motion.div
         initial={{ opacity: 0, x: -50 }}
@@ -76,12 +107,21 @@ const Navbar = ({ host = false }) => {
           <Link to="/contact" className="hover:text-red-400 transition-colors">
             Contact
           </Link>
-          <Link
-            to="/login"
-            className="px-6 py-2 text-lg font-bold bg-red-600 rounded-md hover:bg-red-500 shadow-[0_0_25px_#ef4444] transition-all"
-          >
-            Login
-          </Link>
+          {isAuthenticated ? (
+            <Link
+              onClick={handleLogout}
+              className="px-6 py-2 text-lg font-bold bg-red-600 rounded-md hover:bg-red-500 shadow-[0_0_25px_#ef4444] transition-all"
+            >
+              Logout
+            </Link>
+          ) : (
+            <Link
+              to="/login"
+              className="px-6 py-2 text-lg font-bold bg-red-600 rounded-md hover:bg-red-500 shadow-[0_0_25px_#ef4444] transition-all"
+            >
+              Login
+            </Link>
+          )}
         </motion.div>
       )}
 

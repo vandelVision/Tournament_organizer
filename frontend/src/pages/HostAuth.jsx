@@ -18,14 +18,9 @@ export default function HostAuth() {
   } = useForm();
 
   const onSubmit = async (data) => {
-    // if (!isLogin && data.inviteCode !== "HOST-ACCESS-2025") {
-    //   alert("❌ Invalid Host Invite Code");
-    //   return;
-    // }
     try {
       if (isLogin) {
         const data = await api.loginUser(formData);
-        localStorage.setItem('token', data.token);
         setAuth({ user: data.user, token: data.token });
         navigate('/host/dashboard');
       } else {
@@ -49,14 +44,14 @@ export default function HostAuth() {
   const password = watch("password");
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col">
       <Navbar host={true} />
-      <main className="flex-1 bg-gradient-to-b from-[#1B2430] via-[#212A37] to-[#0D1117] flex flex-col items-center justify-center text-white font-orbitron px-4 pt-16 md:pt-20">
+      <main className="flex-1 bg-gradient-to-b from-[#1B2430] via-[#212A37] to-[#0D1117] flex flex-col items-center justify-center text-white font-orbitron px-4 overflow-hidden">
         <motion.div
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          className="bg-[#121418] rounded-2xl shadow-[0_0_25px_#ff4655] p-6 sm:p-8 w-full max-w-md mt-10 mb-10"
+          className="bg-[#121418] rounded-2xl shadow-[0_0_25px_#ff4655] p-6 sm:p-8 w-full max-w-md"
         >
           <h2 className="text-3xl font-bold text-center mb-4 text-[#ff4655]">
             {isLogin ? "Host Login" : "Host Registration"}

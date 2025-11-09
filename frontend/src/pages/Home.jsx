@@ -1,7 +1,7 @@
-import React from 'react'
-import HeroSection from '../components/HeroSection'
-import UpcomingTournaments from '../components/UpcomingTournaments'
-import Footer from '../components/Footer'
+import React from "react";
+import HeroSection from "../components/HeroSection";
+import UpcomingTournaments from "../components/UpcomingTournaments";
+import Footer from "../components/Footer";
 
 const Home = () => {
   return (
@@ -10,7 +10,7 @@ const Home = () => {
       <UpcomingTournaments />
       <Footer />
     </div>
-  )
-}
+  );
+};
 
-export default Home
+export default Home;
