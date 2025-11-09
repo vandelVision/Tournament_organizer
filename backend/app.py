@@ -21,7 +21,12 @@ def hashpassword(pwd:str):
 
 
 app = Flask(__name__)
-CORS(app,supports_credentials=True,origins=["http://localhost:5173"]) 
+CORS(app, 
+    supports_credentials=True,
+    origins=["http://localhost:3000"],  # Your frontend URL
+    methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"]
+)
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db= client["tournament_organizer"]
@@ -117,7 +122,15 @@ def login_user(role, data):
         )
 
         response = jsonify({"status": "success", "message": "Login Successful", "details": user,"isAuthenticated":True})
-        response.set_cookie("token", token, httponly=True, max_age=7200,secure=False,path="/")
+        response.set_cookie(
+        "token",
+        token,
+        httponly=True,
+        max_age=7200,
+        secure=False,
+        path="/",
+        samesite='Lax'  # The key fix
+        )
         return response
 
     except Exception as e:
@@ -219,6 +232,24 @@ def signup():
 def user_login():
     return login_user("user", request.get_json())
 
+@app.route("/auth-verify", methods=["GET","OPTIONS"])
+@token_required
+def auth_verify():
+    token = request.cookies.get("token")
+    user = g.current_user
+    response =  jsonify({"status": "success", "message": "User is authenticated", "details": user,"isAuthenticated":True})
+    response.set_cookie(
+        "token",
+        token,
+        httponly=False,
+        max_age=7200,
+        secure=False,
+        path="/",
+        samesite="None"  # The key fix
+        )
+    return response
+
+
 
 @app.route("/host_signup", methods=["POST", "OPTIONS"])
 def host_signup():
@@ -287,7 +318,15 @@ def resend_verification():
 @token_required
 def logout():
     response = jsonify({"status": "success", "message": "Logged out successfully"})
-    response.set_cookie("token", "", httponly=True,expires=0,secure=False,path="/")
+    response.set_cookie(
+        "token",
+        "",              # Empty value
+        httponly=True,
+        expires=0,       # Set to past date
+        secure=False,
+        path="/",
+        samesite='Lax'
+    )
     return response
     
 
