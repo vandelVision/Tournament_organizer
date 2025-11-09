@@ -168,7 +168,7 @@ def signup():
     
 
 @app.route("/host_signup", methods=["POST", "OPTIONS"])
-def signup():
+def host_signup():
     return register_user("host", request.get_json())
 
 # --------------
