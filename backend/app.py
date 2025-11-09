@@ -25,7 +25,7 @@ CORS(app,
     supports_credentials=True,
     origins=["http://localhost:3000","https://superlative-cascaron-a3921e.netlify.app"],  # Your frontend URL
     methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Content-Type", "Authorization"]
+   #allow_headers=["Content-Type", "Authorization","x-api-key"]
 )
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
