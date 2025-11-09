@@ -12,7 +12,7 @@ const apiClient = axios.create({
 export const api = {
     loginPlayer: async (data)=>{
         try {
-            const response = await apiClient.post("/login", data)
+            const response = await apiClient.post("/auth/login", data)
             console.log("Login Response:", response);
             return response.data
         } catch (error) {
@@ -21,7 +21,7 @@ export const api = {
     },
     signupPlayer: async (data)=>{
         try {
-            const response = await apiClient.post("/signup", data)
+            const response = await apiClient.post("/auth/signup", data)
             return response.data
         } catch (error) {
             console.error('Login Error:', error.message);
@@ -29,7 +29,7 @@ export const api = {
     },
     checkAuth: async ()=>{
         try {
-            const response = await apiClient.get("/auth-verify")
+            const response = await apiClient.get("/auth/me")
             return response.data
         } catch (error) {
             console.error('Auth Check Error:', error.message);
@@ -37,7 +37,7 @@ export const api = {
     },
     logoutPlayer: async ()=>{
         try {
-            const response = await apiClient.post("/logout")
+            const response = await apiClient.post("/auth/logout")
             return response.data
         } catch (error) {
             console.error('Logout Error:', error.message);
