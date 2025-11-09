@@ -73,7 +73,7 @@ def login():
         return jsonify({"status":"fail","message": "Invalid credentials"}), 401
 
 @app.route("/host_login", methods=["POST"])
-def login():
+def host_login():
     email = request.json["email"]
     password = request.json["password"]
     hashed_pwd = hashpassword(password)
