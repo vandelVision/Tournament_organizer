@@ -81,7 +81,7 @@ def send_otp_email(to_email, otp,username):
         sender={"name": "TOURNAMENT ORGANIZER", "email": "ignitozgaming@gmail.com"},
         to=[{"email": to_email}],
         subject="Your OTP Code",
-        html_content=render_template("otp_template",OTP_CODE=otp,USERNAME=username))
+        html_content=render_template("otp_template.html",OTP_CODE=otp,USERNAME=username))
     
 
     try:
