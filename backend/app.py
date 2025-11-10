@@ -38,6 +38,18 @@ CORS(app,
      methods=["GET","POST","PUT","DELETE"]
 )
 
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+class User(UserMixin):
+    def __init__(self, data, role):
+        self.id = str(data["_id"])
+        self.email = data["email"]
+        self.role = role
+
+
+
+
 ###email_functiona####
 def generate_otp(length=6):
     """Generate a numeric OTP."""
@@ -63,7 +75,7 @@ bervo_key = os.getenv("BERVO_KEY")
 configuration.api_key['api-key'] = bervo_key  # Replace with your API key
 api_instance = TransactionalEmailsApi(ApiClient(configuration))
 
-def send_otp_email(to_email,role, otp):
+def send_otp_email(to_email, otp):
     email = SendSmtpEmail(
         sender={"name": "TOURNAMENT ORGANIZER", "email": "ignitozgaming@gmail.com"},
         to=[{"email": to_email}],
@@ -82,21 +94,17 @@ def send_otp_email(to_email,role, otp):
         print("Exception when sending OTP email: %s\n" % e)
         return {"status": "error", "message": str(e)}
 
-@app.route("/auth/generate_otp", methods=["POST", "OPTIONS"])
+@app.route("/auth/generate_otp", methods=["GET", "OPTIONS"])
+@login_required
 def gen_email_with_otp():
     data = request.get_json()
-    required_keys = ["email", "role"]
-    missing = [k for k in required_keys if k not in data]
 
-    if missing:
-        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
-
-    email = data["email"]
-    role = data["role"]
+    email = current_user.email
+    role = current_user.role
 
     otp = generate_otp()
     save_otp(email, role, otp)
-    res = send_otp_email(email, role, otp)
+    res = send_otp_email(email, otp)
 
     if res["status"] == "success":
         return jsonify({"status": "success", "message": "OTP generated and email sent"}), 200
@@ -105,16 +113,17 @@ def gen_email_with_otp():
     
 
 @app.route("/auth/verify_otp", methods=["POST", "OPTIONS"])
+@login_required
 def verify_otp():
     data = request.get_json()
-    required_keys = ["email", "role", "otp"]
+    required_keys = ["otp"]
     missing = [k for k in required_keys if k not in data]
 
     if missing:
         return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
 
-    email = data["email"]
-    role = data["role"]
+    email = current_user.email
+    role = current_user.role
     otp = data["otp"]
 
     collection = db.user_details if role == "user" else db.host_details
@@ -155,14 +164,6 @@ def global_auth_check():
         return jsonify({'message': 'Unauthorized'}), 401
 
 
-login_manager = LoginManager()
-login_manager.init_app(app)
-
-class User(UserMixin):
-    def __init__(self, data, role):
-        self.id = str(data["_id"])
-        self.email = data["email"]
-        self.role = role
 
 
 @login_manager.user_loader
