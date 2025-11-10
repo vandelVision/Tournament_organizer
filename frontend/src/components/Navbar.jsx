@@ -2,34 +2,35 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "../services/api";
 import { useUser } from "../context/UserContext";
+import { useAuth } from "../hooks/useAuth";
 import toast from "react-hot-toast";
 import Loader from "./Loader";
 
 const Navbar = ({ host = false }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const { isAuthenticated, setUser, loading, setLoading, setIsAuthenticated } =
-    useUser();
+  const { isAuthenticated, loading, setLoading } = useUser();
+  const { logout } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
-    setLoading(true);
     try {
-      const res = await api.logoutPlayer();
-      if (res.status === "success") {
-        toast.success(res.message, { duration: 3000 });
-        setUser(null);
-        setIsAuthenticated(false);
-        navigate("/login");
-        console.log("Logout response:", res);
-      }
+      setLoading(true);
+      const res = await logout();
+      toast.success(res.message || "Logged out successfully", {
+        duration: 3000,
+      });
+      navigate("/");
     } catch (error) {
-      console.log("Error logging out:", error.message);
-      toast.error("Logout failed. Please try again.", { duration: 3000 });
+      console.error("Error logging out:", error);
+      toast.error(
+        error.response?.data?.message || "Logout failed. Please try again.",
+        { duration: 3000 }
+      );
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -56,32 +57,29 @@ const Navbar = ({ host = false }) => {
         className="flex items-center gap-2 cursor-pointer"
         onClick={() => navigate("/")}
       >
-        <svg className="w-10 h-10" viewBox="0 0 64 64" fill="none">
-          <circle
-            cx="32"
-            cy="32"
-            r="30"
-            stroke="url(#grad)"
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeDasharray="180"
-            strokeDashoffset="60"
-          />
-          <path
-            d="M32 8L36 24H28L32 8ZM28 24L32 56L36 24H28Z"
-            fill="url(#blade)"
-          />
+        <svg
+          className="w-12 h-12"
+          viewBox="0 0 64 64"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
           <defs>
-            <linearGradient id="grad" x1="0" y1="0" x2="64" y2="0">
+            <linearGradient id="grad2" x1="0" y1="0" x2="64" y2="64">
               <stop offset="0%" stopColor="#ff4655" />
               <stop offset="100%" stopColor="#ff9f43" />
             </linearGradient>
-            <linearGradient id="blade" x1="0" y1="0" x2="64" y2="64">
-              <stop offset="0%" stopColor="#ff4655" />
-              <stop offset="100%" stopColor="#2b2b2b" />
-            </linearGradient>
           </defs>
+
+          <circle cx="32" cy="32" r="28" stroke="url(#grad2)" strokeWidth="4" />
+          <circle cx="32" cy="32" r="6" fill="url(#grad2)" />
+          <path
+            d="M32 12V20M32 44V52M12 32H20M44 32H52"
+            stroke="url(#grad2)"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
         </svg>
+
         <span className="text-white font-orbitron text-xl sm:text-2xl font-bold tracking-widest">
           CritZone
         </span>

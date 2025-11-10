@@ -4,7 +4,7 @@ import { set, useForm } from "react-hook-form";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import { useUser } from "../context/UserContext";
-import { api } from "../services/api";
+import { useAuth } from "../hooks/useAuth";
 import Loader from "../components/Loader";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
@@ -20,7 +20,8 @@ export default function AuthPage() {
     reset,
     formState: { errors },
   } = useForm();
-  const { setUser, setIsAuthenticated, isAuthenticated } = useUser();
+  const { isAuthenticated } = useUser();
+  const { login, signup } = useAuth();
 
   // If already authenticated, redirect away from login/signup page
   useEffect(() => {
@@ -36,33 +37,26 @@ export default function AuthPage() {
       toast.error("Passwords do not match", { duration: 3000 });
       return;
     }
+
     try {
+      setLoading(true);
       if (mode === "signup") {
-        setLoading(true);
-        const res = await api.signupPlayer(data);
-        if (res.status === "success") {
-          toast.success("Signed up successfully!");
-          setMode("login");
-          console.log("Signup User data response:", res);
-        }
-        setLoading(false);
+        const res = await signup(data);
+        toast.success("Signed up successfully!");
+        setMode("login");
       } else {
-        setLoading(true);
-        const res = await api.loginPlayer(data);
-        if (res.status === "success") {
-          setUser(res.details);
-          setIsAuthenticated(res.isAuthenticated);
-          toast.success(res.message);
-        }
-        console.log("Login User data response:", res);
-        setLoading(false);
+        const res = await login(data);
+        toast.success(res.message || "Login successful!");
         navigate("/");
       }
     } catch (error) {
       console.error("Error during authentication:", error);
-      toast.error("Authentication failed. Please try again.", {
-        duration: 3000,
-      });
+      toast.error(
+        error.response?.data?.message ||
+          "Authentication failed. Please try again.",
+        { duration: 3000 }
+      );
+    } finally {
       setLoading(false);
     }
     reset();
