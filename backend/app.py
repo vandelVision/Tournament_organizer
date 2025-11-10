@@ -97,7 +97,7 @@ def send_otp_email(to_email, otp):
 @app.route("/auth/generate_otp", methods=["GET", "OPTIONS"])
 @login_required
 def gen_email_with_otp():
-    data = request.get_json()
+    #data = request.get_json()
 
     email = current_user.email
     role = current_user.role
