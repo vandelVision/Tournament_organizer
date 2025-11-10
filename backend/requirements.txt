@@ -6,3 +6,4 @@ python-dotenv
 gunicorn
 pyjwt
 flask-login
+sib_api_v3_sdk

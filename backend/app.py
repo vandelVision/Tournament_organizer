@@ -1,3 +1,4 @@
+import random
 from flask import Flask, request, jsonify, redirect, g, session
 from flask_cors import CORS
 from pymongo import MongoClient
@@ -6,6 +7,10 @@ from itsdangerous import URLSafeTimedSerializer
 import hashlib, uuid, smtplib, os, datetime
 from email.mime.text import MIMEText
 from bson.objectid import ObjectId
+from datetime import datetime, timedelta
+
+from sib_api_v3_sdk.rest import ApiException
+from sib_api_v3_sdk import ApiClient, Configuration, TransactionalEmailsApi, SendSmtpEmail
 SECRET_KEY = "MYSECRETKEY123"
 serializer = URLSafeTimedSerializer(SECRET_KEY)
 EXPECTED_API_KEY = os.getenv("EXPECTED_API_KEY")
@@ -32,6 +37,107 @@ CORS(app,
      origins=["https://superlative-cascaron-a3921e.netlify.app","http://localhost:5173"],
      methods=["GET","POST","PUT","DELETE"]
 )
+
+###email_functiona####
+def generate_otp(length=6):
+    """Generate a numeric OTP."""
+    return ''.join([str(random.randint(0, 9)) for _ in range(length)])
+
+def save_otp(email,role, otp):
+    expiry_time = datetime.now() + timedelta(minutes=5)  # OTP valid for 5 mins
+    if role =="user":
+        db.user_details.update_one(
+            {"email": email},  # Match the user by email
+            {"$set": {"otp": otp, "otp_expiry": expiry_time}},  # Store OTP + expiry
+            upsert=True  # Create new document if user doesn't exist
+        )
+    else:
+        db.host_details.update_one(
+            {"email": email},  # Match the user by email
+            {"$set": {"otp": otp, "otp_expiry": expiry_time}},  # Store OTP + expiry
+            upsert=True  # Create new document if user doesn't exist
+        )
+
+configuration = Configuration()
+bervo_key = os.getenv("BERVO_KEY")
+configuration.api_key['api-key'] = bervo_key  # Replace with your API key
+api_instance = TransactionalEmailsApi(ApiClient(configuration))
+
+def send_otp_email(to_email,role, otp):
+    email = SendSmtpEmail(
+        sender={"name": "TOURNAMENT ORGANIZER", "email": "ignitozgaming@gmail.com"},
+        to=[{"email": to_email}],
+        subject="Your OTP Code",
+        html_content=f"""
+            <p>Hello,</p>
+            <p>Your OTP code is: <b>{otp}</b></p>
+            <p>This code is valid for 5 minutes.</p>
+        """
+    )
+
+    try:
+        response = api_instance.send_transac_email(email)
+        return {"status": "success", "message": "OTP email sent!"}
+    except ApiException as e:
+        print("Exception when sending OTP email: %s\n" % e)
+        return {"status": "error", "message": str(e)}
+
+@app.route("auth/generate_otp", methods=["POST", "OPTIONS"])
+def gen_email_with_otp():
+    data = request.get_json()
+    required_keys = ["email", "role"]
+    missing = [k for k in required_keys if k not in data]
+
+    if missing:
+        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
+
+    email = data["email"]
+    role = data["role"]
+
+    otp = generate_otp()
+    save_otp(email, role, otp)
+    res = send_otp_email(email, role, otp)
+
+    if res["status"] == "success":
+        return jsonify({"status": "success", "message": "OTP generated and email sent"}), 200
+    else:
+        return jsonify({"status": "error", "message": res["message"]}), 500
+    
+
+@app.route("auth/verify_otp", methods=["POST", "OPTIONS"])
+def verify_otp():
+    data = request.get_json()
+    required_keys = ["email", "role", "otp"]
+    missing = [k for k in required_keys if k not in data]
+
+    if missing:
+        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
+
+    email = data["email"]
+    role = data["role"]
+    otp = data["otp"]
+
+    collection = db.user_details if role == "user" else db.host_details
+    user = collection.find_one({"email": email})
+
+    if not user or "otp" not in user or "otp_expiry" not in user:
+        return jsonify({"status": "error", "message": "OTP not found. Please generate a new one."}), 404
+
+    if datetime.now() > user["otp_expiry"]:
+        return jsonify({"status": "error", "message": "OTP has expired. Please generate a new one."}), 400
+
+    if user["otp"] != otp:
+        return jsonify({"status": "error", "message": "Invalid OTP."}), 400
+
+    # OTP is valid
+    collection.update_one({"email": email}, {"$set": {"Verified": True}, "$unset": {"otp": "", "otp_expiry": ""}})
+
+    return jsonify({"status": "success", "message": "OTP verified successfully."}), 200
+
+
+
+
+
 
 
 ######beefore request for global auth check#########
@@ -156,7 +262,7 @@ def register_user(role, data):
         user_data["inviteCode"] = uuid.uuid4().hex[:12]
 
     try:
-        
+        session["role"]=role
 
         # send email with correct verification type
         #res = send_email(data["email"], role)
@@ -177,7 +283,6 @@ def host_signup():
 def signup():
     return register_user("user", request.get_json())
 ###################################################
-
 
 
 
