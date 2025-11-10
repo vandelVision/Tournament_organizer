@@ -82,7 +82,7 @@ def send_otp_email(to_email,role, otp):
         print("Exception when sending OTP email: %s\n" % e)
         return {"status": "error", "message": str(e)}
 
-@app.route("auth/generate_otp", methods=["POST", "OPTIONS"])
+@app.route("/auth/generate_otp", methods=["POST", "OPTIONS"])
 def gen_email_with_otp():
     data = request.get_json()
     required_keys = ["email", "role"]
@@ -104,7 +104,7 @@ def gen_email_with_otp():
         return jsonify({"status": "error", "message": res["message"]}), 500
     
 
-@app.route("auth/verify_otp", methods=["POST", "OPTIONS"])
+@app.route("/auth/verify_otp", methods=["POST", "OPTIONS"])
 def verify_otp():
     data = request.get_json()
     required_keys = ["email", "role", "otp"]
