@@ -10,7 +10,7 @@ import Loader from "./Loader";
 const Navbar = ({ host = false }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const { isAuthenticated, loading, setLoading } = useUser();
+  const { isAuthenticated, loading, user, setLoading } = useUser();
   const { logout } = useAuth();
   const navigate = useNavigate();
 
@@ -96,12 +96,21 @@ const Navbar = ({ host = false }) => {
           <Link to="/" className="hover:text-red-400 transition-colors">
             Home
           </Link>
-          <Link
-            to="/tournaments"
-            className="hover:text-red-400 transition-colors"
-          >
-            Tournaments
-          </Link>
+          {user && user.role === "user" ? (
+            <Link
+              to="/tournaments"
+              className="hover:text-red-400 transition-colors"
+            >
+              Tournaments
+            </Link>
+          ) : (
+            <Link
+              to="/host/123/dashboard"
+              className="hover:text-red-400 transition-colors"
+            >
+              Dashboard
+            </Link>
+          )}
           <Link to="/contact" className="hover:text-red-400 transition-colors">
             Contact
           </Link>

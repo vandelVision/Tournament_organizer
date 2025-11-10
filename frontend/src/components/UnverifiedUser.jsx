@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { CircleAlert, RefreshCw } from "lucide-react";
+import { CircleAlert, RefreshCw, CheckCircle } from "lucide-react";
 import { useUser } from "../context/UserContext";
 import { api } from "../services/api";
 import toast from "react-hot-toast";
@@ -8,11 +8,13 @@ import toast from "react-hot-toast";
 const UnverifiedUser = () => {
   const { user } = useUser();
   const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [otp, setOtp] = useState("");
 
   const handleResend = async () => {
     setSending(true);
     try {
-      await api.resendVerification?.();
+      await api.resendVerificationMail();
       toast.success(
         "Verification email sent. Check your inbox (and spam folder).",
         { duration: 4000 }
@@ -27,10 +29,34 @@ const UnverifiedUser = () => {
     }
   };
 
+  const handleVerifyOtp = async () => {
+    if (!otp || otp.length < 4) {
+      toast.error("Please enter a valid OTP");
+      return;
+    }
+
+    setVerifying(true);
+    try {
+      await api.verifyOtp({ otp });
+      toast.success("Account verified successfully!", { duration: 3000 });
+      
+      // Optionally reload the page or redirect
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err) {
+      toast.error(
+        err.response?.data?.message || "Invalid or expired OTP. Please try again."
+      );
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   if (!user) return null; // Guard: only show if a user exists
 
   return (
-    <div className="flex items-center justify-center font-sans w-full min-h-[74vh] px-4 py-6">
+    <div className="flex items-center justify-center font-sans w-full min-h-screen pt-24 pb-8 px-4">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -73,6 +99,37 @@ const UnverifiedUser = () => {
                 </a>
               </li>
             </ul>
+
+            {/* OTP Verification Section */}
+            <div className="bg-[#151b26] rounded-lg p-3 sm:p-4 border border-[#2a2f3a]">
+              <label className="block text-gray-300 text-xs sm:text-sm font-semibold mb-2">
+                Enter Verification Code (OTP)
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="Enter 6-digit OTP"
+                  maxLength={6}
+                  className="flex-1 bg-[#0f1923] rounded-md px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white border border-gray-700 focus:border-[#ff4655] focus:outline-none focus:ring-2 focus:ring-[#ff4655]/50 transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={handleVerifyOtp}
+                  disabled={verifying || !otp}
+                  className={`inline-flex items-center justify-center gap-2 rounded-md px-4 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold uppercase tracking-wide transition-all focus:outline-none focus:ring-2 focus:ring-[#ff4655] focus:ring-offset-2 focus:ring-offset-[#1E2837] shadow-md ${
+                    verifying || !otp
+                      ? "bg-gray-600 text-gray-300 cursor-not-allowed"
+                      : "bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-600 text-white"
+                  }`}
+                >
+                  <CheckCircle className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${verifying ? "animate-pulse" : ""}`} />
+                  {verifying ? "Verifying…" : "Verify"}
+                </button>
+              </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-1 sm:pt-2">
               <button
                 type="button"

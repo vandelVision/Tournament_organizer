@@ -40,8 +40,16 @@ export const api = {
     return response.data;
   },
   // Resend verification email for current authenticated user
-  resendVerification: async () => {
-    const response = await apiClient.post("/auth/generate_otp", data);
+  resendVerificationMail: async () => {
+    const response = await apiClient.get("/auth/generate_otp", {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
     return response.data;
   },
+  verifyOtp: async (data) => {
+    const response = await apiClient.post("/auth/verify_otp", data);
+    return response.data;
+  }
 };
