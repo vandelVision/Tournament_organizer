@@ -1,5 +1,5 @@
 import random
-from flask import Flask, request, jsonify, redirect, g, session
+from flask import Flask, request, jsonify, redirect, g, session, render_template
 from flask_cors import CORS
 from pymongo import MongoClient
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -75,17 +75,14 @@ bervo_key = os.getenv("BERVO_KEY")
 configuration.api_key['api-key'] = bervo_key  # Replace with your API key
 api_instance = TransactionalEmailsApi(ApiClient(configuration))
 
-def send_otp_email(to_email, otp):
+
+def send_otp_email(to_email, otp,username):
     email = SendSmtpEmail(
         sender={"name": "TOURNAMENT ORGANIZER", "email": "ignitozgaming@gmail.com"},
         to=[{"email": to_email}],
         subject="Your OTP Code",
-        html_content=f"""
-            <p>Hello,</p>
-            <p>Your OTP code is: <b>{otp}</b></p>
-            <p>This code is valid for 5 minutes.</p>
-        """
-    )
+        html_content=render_template("otp_template",OTP_CODE=otp,USERNAME=username))
+    
 
     try:
         response = api_instance.send_transac_email(email)
@@ -101,10 +98,11 @@ def gen_email_with_otp():
 
     email = current_user.email
     role = current_user.role
-
+    collection = db.user_details if role == "user" else db.host_details
+    username = collection.find_one({"email": email},{"username":1,"_id":0})["username"]
     otp = generate_otp()
     save_otp(email, role, otp)
-    res = send_otp_email(email, otp)
+    res = send_otp_email(email, otp,username)
 
     if res["status"] == "success":
         return jsonify({"status": "success", "message": "OTP generated and email sent"}), 200
