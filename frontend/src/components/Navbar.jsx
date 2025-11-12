@@ -96,14 +96,17 @@ const Navbar = ({ host = false }) => {
           <Link to="/" className="hover:text-red-400 transition-colors">
             Home
           </Link>
-          {user && user.role === "user" ? (
+
+          {(!user || user.role === "user") && (
             <Link
               to="/tournaments"
               className="hover:text-red-400 transition-colors"
             >
               Tournaments
             </Link>
-          ) : (
+          )}
+
+          {user && user.role === "host" && (
             <Link
               to="/host/123/dashboard"
               className="hover:text-red-400 transition-colors"
@@ -111,6 +114,7 @@ const Navbar = ({ host = false }) => {
               Dashboard
             </Link>
           )}
+
           <Link to="/contact" className="hover:text-red-400 transition-colors">
             Contact
           </Link>

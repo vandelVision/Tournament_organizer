@@ -10,6 +10,7 @@ import LoginPage from "./pages/Login";
 import HostAuth from "./pages/HostAuth";
 import PlayerDashboard from "./components/player/PlayerDashboard";
 import HostDashboard from "./components/host/HostDashboard";
+import HostApp from "./components/host/HostApp";
 
 // Layout component that handles scroll restoration
 function Layout() {
@@ -66,7 +67,7 @@ const router = createBrowserRouter([
       },
       {
         path: "/host/:id/dashboard",
-        element: <HostDashboard />
+        element: <HostApp />
       }
     ]
   }
