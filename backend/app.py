@@ -1,345 +1,408 @@
+# app.py
+import os
 import random
-from flask import Flask, request, jsonify, redirect, g, session, render_template
-from flask_cors import CORS
-from pymongo import MongoClient
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from itsdangerous import URLSafeTimedSerializer
-import hashlib, uuid, smtplib, os, datetime
-from email.mime.text import MIMEText
-from bson.objectid import ObjectId
+import hashlib
+import uuid
+import asyncio
 from datetime import datetime, timedelta
 
-from sib_api_v3_sdk.rest import ApiException
+from bson import ObjectId
+from flask import (
+    Flask, request, jsonify, render_template
+)
+from flask_cors import CORS
+from motor.motor_asyncio import AsyncIOMotorClient
+from itsdangerous import URLSafeTimedSerializer
+
 from sib_api_v3_sdk import ApiClient, Configuration, TransactionalEmailsApi, SendSmtpEmail
-SECRET_KEY = "MYSECRETKEY123"
-serializer = URLSafeTimedSerializer(SECRET_KEY)
+from sib_api_v3_sdk.rest import ApiException
+
+from flask_jwt_extended import (
+    JWTManager,
+    create_access_token,
+    create_refresh_token,
+    jwt_required,
+    get_jwt_identity,
+    set_access_cookies,
+    set_refresh_cookies,
+    unset_jwt_cookies,
+    get_csrf_token,
+    get_jwt
+)
+
+# -------------------
+# Configuration
+# -------------------
+SECRET_KEY = os.getenv("SECRET_KEY", "MYSECRETKEY123")
+MONGO_URI = os.getenv("MONGO_URI")
+BERVO_KEY = os.getenv("BERVO_KEY")
 EXPECTED_API_KEY = os.getenv("EXPECTED_API_KEY")
 
-
-db= MongoClient(os.getenv("MONGO_URI"))["tournament_organizer"]
-
-
-def hashpassword(pwd:str):
-    return hashlib.sha256(pwd.encode()).hexdigest()
-
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates")
 app.secret_key = SECRET_KEY
 
+# JWT cookie config - change JWT_COOKIE_SECURE=True in production (HTTPS)
 app.config.update(
-    SESSION_COOKIE_SAMESITE="None",
-    SESSION_COOKIE_SECURE=True,
-    REMEMBER_COOKIE_SAMESITE="None",
-    REMEMBER_COOKIE_SECURE=True
+    JWT_SECRET_KEY=SECRET_KEY,
+    JWT_TOKEN_LOCATION=["cookies"],
+    JWT_ACCESS_COOKIE_PATH="/",
+    JWT_REFRESH_COOKIE_PATH="/auth/refresh",
+    JWT_COOKIE_CSRF_PROTECT=True,
+    JWT_COOKIE_SECURE=True,             # True in production (requires HTTPS)
+    JWT_COOKIE_SAMESITE="None",
+    JWT_ACCESS_TOKEN_EXPIRES=timedelta(minutes=10),
+    JWT_REFRESH_TOKEN_EXPIRES=timedelta(days=7),
 )
 
-CORS(app,
-     supports_credentials=True,
-     origins=["https://superlative-cascaron-a3921e.netlify.app","http://localhost:5173"],
-     methods=["GET","POST","PUT","DELETE"]
-)
+CORS(app, supports_credentials=True, origins=[
+    "https://superlative-cascaron-a3921e.netlify.app",
+    "http://localhost:5173"
+],
+  expose_headers=["X-CSRF-Token","Time-Left"])
 
-login_manager = LoginManager()
-login_manager.init_app(app)
+jwt = JWTManager(app)
+serializer = URLSafeTimedSerializer(SECRET_KEY)
 
-class User(UserMixin):
-    def __init__(self, data, role):
-        self.id = str(data["_id"])
-        self.email = data["email"]
-        self.role = role
+# -------------------
+# DB (Motor)
+# -------------------
+if not MONGO_URI:
+    raise RuntimeError("MONGO_URI env var is required")
+client = AsyncIOMotorClient(MONGO_URI)
+db = client["tournament_organizer"]
 
-
-
-
-###email_functiona####
-def generate_otp(length=6):
-    """Generate a numeric OTP."""
-    return ''.join([str(random.randint(0, 9)) for _ in range(length)])
-
-def save_otp(email,role, otp):
-    expiry_time = datetime.now() + timedelta(minutes=5)  # OTP valid for 5 mins
-    if role =="user":
-        db.user_details.update_one(
-            {"email": email},  # Match the user by email
-            {"$set": {"otp": otp, "otp_expiry": expiry_time}},  # Store OTP + expiry
-            upsert=True  # Create new document if user doesn't exist
-        )
-    else:
-        db.host_details.update_one(
-            {"email": email},  # Match the user by email
-            {"$set": {"otp": otp, "otp_expiry": expiry_time}},  # Store OTP + expiry
-            upsert=True  # Create new document if user doesn't exist
-        )
-
+# -------------------
+# Email (Sendinblue / Bervo)
+# -------------------
 configuration = Configuration()
-bervo_key = os.getenv("BERVO_KEY")
-configuration.api_key['api-key'] = bervo_key  # Replace with your API key
+configuration.api_key['api-key'] = BERVO_KEY
 api_instance = TransactionalEmailsApi(ApiClient(configuration))
 
+# -------------------
+# Helpers
+# -------------------
 
-def send_otp_email(to_email, otp,username):
+def get_time_left():
+    jwt_data= get_jwt()
+    exp = jwt_data["exp"]
+    time_left = exp - int(datetime.now().timestamp())
+    return time_left
+
+
+
+def hashpassword(pwd: str):
+    return hashlib.sha256(pwd.encode()).hexdigest()
+
+def generate_otp(length=6):
+    return ''.join(str(random.randint(0, 9)) for _ in range(length))
+
+async def send_otp_email(to_email: str, otp: str, username: str):
+    """
+    send_transac_email is blocking in the SDK, so run in thread to avoid blocking event loop.
+    """
     email = SendSmtpEmail(
         sender={"name": "TOURNAMENT ORGANIZER", "email": "ignitozgaming@gmail.com"},
         to=[{"email": to_email}],
         subject="Your OTP Code",
-        html_content=render_template("otp_template.html",OTP_CODE=otp,USERNAME=username))
-    
+        html_content=render_template("otp_template.html", OTP_CODE=otp, USERNAME=username)
+    )
+
+    def _send():
+        try:
+            return api_instance.send_transac_email(email)
+        except ApiException as e:
+            raise
 
     try:
-        response = api_instance.send_transac_email(email)
+        # run blocking send in threadpool
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _send)
         return {"status": "success", "message": "OTP email sent!"}
     except ApiException as e:
-        print("Exception when sending OTP email: %s\n" % e)
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.route("/auth/generate_otp", methods=["GET", "OPTIONS"])
-@login_required
-def gen_email_with_otp():
-    #data = request.get_json()
-
-    email = current_user.email
-    role = current_user.role
-    collection = db.user_details if role == "user" else db.host_details
-    username = collection.find_one({"email": email},{"username":1,"_id":0})["username"]
-    otp = generate_otp()
-    save_otp(email, role, otp)
-    res = send_otp_email(email, otp,username)
-
-    if res["status"] == "success":
-        return jsonify({"status": "success", "message": "OTP generated and email sent"}), 200
-    else:
-        return jsonify({"status": "error", "message": res["message"]}), 500
-    
-
-@app.route("/auth/verify_otp", methods=["POST", "OPTIONS"])
-@login_required
-def verify_otp():
-    data = request.get_json()
-    required_keys = ["otp"]
-    missing = [k for k in required_keys if k not in data]
-
-    if missing:
-        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
-
-    email = current_user.email
-    role = current_user.role
-    otp = data["otp"]
-
-    collection = db.user_details if role == "user" else db.host_details
-    user = collection.find_one({"email": email})
-
-    if not user or "otp" not in user or "otp_expiry" not in user:
-        return jsonify({"status": "error", "message": "OTP not found. Please generate a new one."}), 404
-
-    if datetime.now() > user["otp_expiry"]:
-        return jsonify({"status": "error", "message": "OTP has expired. Please generate a new one."}), 400
-
-    if user["otp"] != otp:
-        return jsonify({"status": "error", "message": "Invalid OTP."}), 400
-
-    # OTP is valid
-    collection.update_one({"email": email}, {"$set": {"Verified": True}, "$unset": {"otp": "", "otp_expiry": ""}})
-
-    return jsonify({"status": "success", "message": "OTP verified successfully."}), 200
-
-
-
-
-
-
-
-######beefore request for global auth check#########
+# -------------------
+# Middleware: API key check
+# -------------------
 @app.before_request
 def global_auth_check():
-    exempt_routes = ['health','home','verify']
-    if request.endpoint in exempt_routes:
-        return
+    # endpoints that should bypass API key check
+    exempt_endpoints = {
+        'health', 'home',
+        'signup', 'host_signup',
+        'login', 'host_login',
+        'static', 'openapi'  # allow static files etc.
+    }
+    # For OPTIONS and exempt endpoints skip
     if request.method == "OPTIONS":
-        return '', 200
+        return
+
+    endpoint = (request.endpoint or "").split('.')[-1]
+    if endpoint in exempt_endpoints:
+        return
+
     api_key = request.headers.get('x-api-key')
     if api_key:
         api_key = hashlib.sha256(api_key.encode()).hexdigest()
     if not api_key or api_key != EXPECTED_API_KEY:
-        return jsonify({'message': 'Unauthorized'}), 401
+        return jsonify({"message": "Unauthorized"}), 401
 
+# -------------------
+# Auth & User endpoints
+# -------------------
 
-
-
-@login_manager.user_loader
-def load_user(user_id):
-        role = session.get("role")
-        if role:
-            if role == "host":
-                data = db.host_details.find_one({"_id": ObjectId(user_id)})
-            else:
-                data = db.user_details.find_one({"_id": ObjectId(user_id)})
-
-            if data:
-                return User(data, role)
-            return None
-        else:
-            return None
-
-@app.route("/auth/login", methods=["POST"])
-def login():
-    email = request.json["email"]
-    password = request.json["password"]
-    hashed_pwd = hashpassword(password)
-    user_data = db.user_details.find_one({"email": email, "password": hashed_pwd})
-    if user_data:
-        user = User(user_data, "user")
-        login_user(user,remember=True)
-        session["role"] = "user"
-        user_data["_id"] = str(user_data["_id"])
-        return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True,"role":"user"}), 200
-
-    else:
-        return jsonify({"status":"error","message": "Invalid credentials"}), 401
-
-@app.route("/auth/host_login", methods=["POST"])
-def host_login():
-    email = request.json["email"]
-    password = request.json["password"]
-    hashed_pwd = hashpassword(password)
-    user_data = db.host_details.find_one({"email": email, "password": hashed_pwd})
-    if user_data:
-        user = User(user_data, "host")
-        login_user(user,remember=True)
-        session["role"] = "host"
-        user_data["_id"] = str(user_data["_id"])
-        return jsonify({"status":"success","message": "Logged in successfully","details":user_data,"isAuthenticated":True,"role":"host"}), 200
-
-    else:
-        return jsonify({"status":"error","message": "Invalid credentials"}), 401
-    
-
-@app.route("/auth/logout", methods=["POST", "OPTIONS"])
-@login_required
-def logout():
-    logout_user()
-    session.pop("role", None)
-    return jsonify({"status": "success", "message": "Logged out successfully", "isAuthenticated": False}), 200
-
-
-##################helper functions####################
-
-def register_user(role, data):
+@app.route("/auth/signup", methods=["POST", "OPTIONS"])
+async def signup():
+    data = await request.get_json()
     required_keys = ["username", "email", "phone", "password"]
-    missing = [k for k in required_keys if k not in data]
-
+    missing = [k for k in required_keys if k not in (data or {})]
     if missing:
         return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
 
-    data["password"] = hashpassword(data.get("password", ""))
+    username = data["username"]
+    email = data["email"]
+    phone = data["phone"]
+    password = hashpassword(data["password"])
 
-    # Check duplicate across BOTH collections
-    query = {
-        "$or": [
-            {"username": data["username"]},
-            {"email": data["email"]},
-            {"phone": data["phone"]},
-        ]
+    # Check duplicates across user collection
+    query = {"$or": [{"username": username}, {"email": email}, {"phone": phone}]}
+    existing = await db.user_details.find_one(query)
+    if existing:
+        return jsonify({"status": "error", "message": "User with one of these details already exists"}), 409
+
+    user_doc = {
+        "username": username,
+        "email": email,
+        "phone": phone,
+        "password": password,
+        "Verified": False,
+        "created_at": datetime.now()
     }
+    await db.user_details.insert_one(user_doc)
+    return jsonify({"status": "success", "message": "User registered"}), 201
 
-    # Choose correct collection
-    if role == "host":
-        collection = db.host_details
-    else:
-        collection = db.user_details
-
-    if collection.find_one(query):
-        return jsonify({"status":"error","message":"User with one of these details already exists"}), 409
-
-    user_data = {
-        "username": data["username"],
-        "email": data["email"],
-        "phone": data["phone"],
-        "password": data["password"],
-        "Verified": False
-    }
-
-    if role == "host":
-        user_data["inviteCode"] = uuid.uuid4().hex[:12]
-
-    try:
-        session["role"]=role
-
-        # send email with correct verification type
-        #res = send_email(data["email"], role)
-        collection.insert_one(user_data)
-        return jsonify({"status": "success", "message": "verification email resent"}), 201
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
-####--------------------------------------------------------------------------------#######
-
-#####Signup routes#####
 
 @app.route("/auth/host_signup", methods=["POST", "OPTIONS"])
-def host_signup():
-    return register_user("host", request.get_json())
+async def host_signup():
+    data = await request.get_json()
+    required_keys = ["username", "email", "phone", "password"]
+    missing = [k for k in required_keys if k not in (data or {})]
+    if missing:
+        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
 
-@app.route("/auth/signup", methods=["POST", "OPTIONS"])
-def signup():
-    return register_user("user", request.get_json())
-###################################################
+    username = data["username"]
+    email = data["email"]
+    phone = data["phone"]
+    password = hashpassword(data["password"])
+
+    query = {"$or": [{"username": username}, {"email": email}, {"phone": phone}]}
+    existing = await db.host_details.find_one(query)
+    if existing:
+        return jsonify({"status": "error", "message": "Host with one of these details already exists"}), 409
+
+    host_doc = {
+        "username": username,
+        "email": email,
+        "phone": phone,
+        "password": password,
+        "inviteCode": uuid.uuid4().hex[:12],
+        "Verified": False,
+        "created_at": datetime.now()
+    }
+    await db.host_details.insert_one(host_doc)
+    return jsonify({"status": "success", "message": "Host registered"}), 201
 
 
+@app.route("/auth/login", methods=["POST"])
+async def login():
+    data = await request.get_json()
+    email = data.get("email")
+    password = data.get("password")
+    if not email or not password:
+        return jsonify({"status": "error", "message": "Missing credentials"}), 400
 
-##refresh routes #########################
-@app.route("/auth/me", methods=["GET", "OPTIONS"])
-@login_required
-def me():
-    if not current_user.is_authenticated:
-        return jsonify({
-            "status": "error",
-            "isAuthenticated": False,
-            "message": "Not logged in"
-        }), 401
-    user = current_user
-    if user.role == "user":
-        data = db.user_details.find_one({"_id": ObjectId(user.id)})
-    else:
-        data = db.host_details.find_one({"_id": ObjectId(user.id)})
-    if data:
-        data["_id"] = str(data["_id"])
-        return jsonify({
-            "status": "success",
-            "isAuthenticated": True,
-            "details": data,
-            "role": user.role
-        }), 200
-    else:
+    hashed = hashpassword(password)
+    user = await db.user_details.find_one({"email": email, "password": hashed})
+    if not user:
+        return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+
+    identity = {"id": str(user["_id"]), "role": "user"}
+    access_token = create_access_token(identity=identity)
+    refresh_token = create_refresh_token(identity=identity)
+    user.pop("password", None)
+    resp = jsonify({"status": "success", "message": "Logged in", "role": "user","details":user,"isAuthenticated":True})
+    set_access_cookies(resp, access_token)
+    set_refresh_cookies(resp, refresh_token)
+    # optionally return CSRF token for front-end to include in header of subsequent requests
+    resp.headers["X-CSRF-Token"] = get_csrf_token(access_token)
+    resp.headers["Time-Left"] = get_time_left()
+    return resp, 200
+
+
+@app.route("/auth/host_login", methods=["POST"])
+async def host_login():
+    data = await request.get_json()
+    email = data.get("email")
+    password = data.get("password")
+    if not email or not password:
+        return jsonify({"status": "error", "message": "Missing credentials"}), 400
+
+    hashed = hashpassword(password)
+    host = await db.host_details.find_one({"email": email, "password": hashed})
+    if not host:
+        return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+
+    identity = {"id": str(host["_id"]), "role": "host"}
+    access_token = create_access_token(identity=identity)
+    refresh_token = create_refresh_token(identity=identity)
+    host.pop("password", None)
+    resp = jsonify({"status": "success", "message": "Logged in", "role": "host","details":host,"isAuthenticated":True})
+    set_access_cookies(resp, access_token)
+    set_refresh_cookies(resp, refresh_token)
+    resp.headers["X-CSRF-Token"] = get_csrf_token(access_token)
+    resp.headers["Time-Left"] = get_time_left()
+    return resp, 200
+
+
+@app.route("/auth/logout", methods=["POST", "OPTIONS"])
+async def logout():
+    resp = jsonify({"status": "success", "message": "Logged out", "isAuthenticated": False})
+    unset_jwt_cookies(resp)
+    return resp, 200
+
+
+# Refresh endpoint to mint new access token using refresh cookie
+@app.route("/auth/refresh", methods=["POST"])
+@jwt_required(refresh=True)
+async def refresh():
+    identity = get_jwt_identity()
+    access_token = create_access_token(identity=identity)
+    resp = jsonify({"status": "success", "message": "Token refreshed"})
+    set_access_cookies(resp, access_token)
+    resp.headers["X-CSRF-Token"] = get_csrf_token(access_token)
+    resp.headers["Time-Left"] = get_time_left()
+    return resp, 200
+
+# Protected user info
+@app.route("/auth/me", methods=["GET"])
+@jwt_required()
+async def me():
+    identity = get_jwt_identity()
+    user_id = identity.get("id")
+    role = identity.get("role")
+    #access_token = create_access_token(identity=identity)
+    collection = db.user_details if role == "user" else db.host_details
+    user = await collection.find_one({"_id": ObjectId(user_id)})
+    if not user:
         return jsonify({"status": "error", "message": "User not found"}), 404
-    
-    
-######health check route#####
+    user["_id"] = str(user["_id"])
+    # Do not return password
+    user.pop("password", None)
+    resp = jsonify({"status": "success", "details": user, "role": role,"isAuthenticated":True})
+    resp.headers["Time-Left"] = get_time_left()
+    #set_access_cookies(resp, access_token)
+    #resp.headers["X-CSRF-Token"] = get_csrf_token(access_token)
+    return resp, 200
+
+# -------------------
+# OTP endpoints
+# -------------------
+@app.route("/auth/generate_otp", methods=["GET"])
+@jwt_required()
+async def gen_email_with_otp():
+    identity = get_jwt_identity()
+    user_id = identity.get("id")
+    role = identity.get("role")
+
+    collection = db.user_details if role == "user" else db.host_details
+    user = await collection.find_one({"_id": ObjectId(user_id)}, {"email": 1, "username": 1})
+    if not user:
+        return jsonify({"status": "error", "message": "User not found"}), 404
+
+    otp = generate_otp()
+    expiry_time = datetime.now() + timedelta(minutes=5)
+
+    await collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"otp": otp, "otp_expiry": expiry_time}}
+    )
+
+    res = await send_otp_email(user["email"], otp, user.get("username", "User"))
+    if res["status"] == "success":
+        resp = jsonify({"status": "success", "message": "OTP generated and email sent"})
+        resp.headers["Time-Left"] = get_time_left()
+        return resp, 200
+    else:
+        resp = jsonify({"status": "error", "message": res["message"]}), 500
+        resp.headers["Time-Left"] = get_time_left()
+        return resp,500
 
 
+@app.route("/auth/verify_otp", methods=["POST"])
+@jwt_required()
+async def verify_otp():
+    data = await request.get_json()
+    otp = (data or {}).get("otp")
+    if not otp:
+        resp = jsonify({"status": "error", "message": "Missing otp"})
+        resp.headers["Time-Left"] = get_time_left()
+        return resp,400
 
+    identity = get_jwt_identity()
+    user_id = identity.get("id")
+    role = identity.get("role")
+    collection = db.user_details if role == "user" else db.host_details
+    user = await collection.find_one({"_id": ObjectId(user_id)})
 
+    if not user or "otp" not in user or "otp_expiry" not in user:
+        resp = jsonify({"status": "error", "message": "OTP not found. Please generate a new one."})
+        resp.headers["Time-Left"] = get_time_left()
+        return resp,404
+
+    if datetime.now() > user["otp_expiry"]:
+        resp = jsonify({"status": "error", "message": "OTP has expired. Please generate a new one."}), 400
+        resp.headers["Time-Left"] = get_time_left()
+        return resp,400
+
+    if user["otp"] != otp:
+        resp = jsonify({"status": "error", "message": "Invalid OTP."})
+        resp.headers["Time-Left"] = get_time_left()
+        return resp,400
+
+    # OTP is valid: mark verified and remove otp fields
+    await collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"Verified": True}, "$unset": {"otp": "", "otp_expiry": ""}}
+    )
+    resp = jsonify({"status": "success", "message": "OTP verified successfully."})
+    resp.headers["Time-Left"] = get_time_left()
+    return resp, 200
+
+# -------------------
+# Health & root
+# -------------------
 @app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status":"success","message":"API is healthy"}), 200
+async def health():
+    return jsonify({"status": "success", "message": "API is healthy"}), 200
 
 @app.route("/", methods=["GET"])
-def home():
-    return jsonify({"status":"success","message":"Welcome to the Tournament Organizer API"}), 200
+async def home():
+    return jsonify({"status": "success", "message": "Welcome to the Tournament Organizer API"}), 200
 
+# -------------------
+# Error handler for JWT (optional customization)
+# -------------------
+from flask_jwt_extended.exceptions import NoAuthorizationError
+@app.errorhandler(NoAuthorizationError)
+def handle_no_auth(e):
+    return jsonify({"status": "error", "message": "Missing or invalid token"}), 401
 
-@login_manager.unauthorized_handler
-def unauthorized():
-    return jsonify({
-        "status": "error",
-        "isAuthenticated": False,
-        "message": "User not logged in"
-    }), 401
-
-
+# -------------------
+# Run (development)
+# -------------------
 if __name__ == "__main__":
+    # Flask will accept async view functions on recent versions.
+    # In production, run with an ASGI server (hypercorn/uvicorn) for best performance.
     app.run()
-
-
-    
-
-
-
