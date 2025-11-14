@@ -7,4 +7,5 @@ pyjwt
 flask-login
 sib_api_v3_sdk
 flask_jwt_extended
+uvicorn
 motor
