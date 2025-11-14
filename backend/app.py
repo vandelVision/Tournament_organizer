@@ -1,110 +1,88 @@
-# app.py
+# main.py
 import os
 import random
 import hashlib
 import uuid
 import asyncio
 from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
 
 from bson import ObjectId
-from flask import (
-    Flask, request, jsonify, render_template
+from fastapi import (
+    FastAPI, Request, Depends, HTTPException, status, Response, Header
 )
-from flask_cors import CORS
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.templating import Jinja2Templates
+
 from motor.motor_asyncio import AsyncIOMotorClient
 from itsdangerous import URLSafeTimedSerializer
 
 from sib_api_v3_sdk import ApiClient, Configuration, TransactionalEmailsApi, SendSmtpEmail
 from sib_api_v3_sdk.rest import ApiException
 
-from flask_jwt_extended import (
-    JWTManager,
-    create_access_token,
-    create_refresh_token,
-    jwt_required,
-    get_jwt_identity,
-    set_access_cookies,
-    set_refresh_cookies,
-    unset_jwt_cookies,
-    get_csrf_token,
-    get_jwt
-)
+import jwt  # PyJWT
+from jwt import PyJWTError
 
 # -------------------
 # Configuration
 # -------------------
-SECRET_KEY = os.getenv("SECRET_KEY", "MYSECRETKEY123")
+SECRET_KEY = os.getenv("SECRET_KEY", "MY_SECRET_KEY_123")
+JWT_ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRES_MINUTES = int(os.getenv("JWT_ACCESS_MINUTES", "10"))
+REFRESH_TOKEN_EXPIRES_DAYS = int(os.getenv("JWT_REFRESH_DAYS", "7"))
+
 MONGO_URI = os.getenv("MONGO_URI")
 BERVO_KEY = os.getenv("BERVO_KEY")
+# EXPECTED_API_KEY should be stored hashed (sha256 hex) if you want to compare hashed value.
 EXPECTED_API_KEY = os.getenv("EXPECTED_API_KEY")
 
-app = Flask(__name__, template_folder="templates")
-app.secret_key = SECRET_KEY
-
-# JWT cookie config - change JWT_COOKIE_SECURE=True in production (HTTPS)
-app.config.update(
-    JWT_SECRET_KEY=SECRET_KEY,
-    JWT_TOKEN_LOCATION=["cookies"],
-    JWT_ACCESS_COOKIE_PATH="/",
-    JWT_REFRESH_COOKIE_PATH="/auth/refresh",
-    JWT_COOKIE_CSRF_PROTECT=True,
-    JWT_COOKIE_SECURE=True,             # True in production (requires HTTPS)
-    JWT_COOKIE_SAMESITE="None",
-    JWT_ACCESS_TOKEN_EXPIRES=timedelta(minutes=10),
-    JWT_REFRESH_TOKEN_EXPIRES=timedelta(days=7),
-)
-
-CORS(app, supports_credentials=True, origins=[
-    "https://superlative-cascaron-a3921e.netlify.app",
-    "http://localhost:5173"
-],
-  expose_headers=["X-CSRF-Token","Time-Left"])
-
-jwt = JWTManager(app)
-serializer = URLSafeTimedSerializer(SECRET_KEY)
-
-# -------------------
-# DB (Motor)
-# -------------------
 if not MONGO_URI:
     raise RuntimeError("MONGO_URI env var is required")
+
+app = FastAPI()
+templates = Jinja2Templates(directory="templates")
+
+# CORS (allow your frontends)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://superlative-cascaron-a3921e.netlify.app",
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-CSRF-Token", "Time-Left"],
+)
+
+# Email (Sendinblue / Bervo)
+configuration = Configuration()
+configuration.api_key["api-key"] = BERVO_KEY
+api_instance = TransactionalEmailsApi(ApiClient(configuration))
+serializer = URLSafeTimedSerializer(SECRET_KEY)
+
+# Mongo client
 client = AsyncIOMotorClient(MONGO_URI)
 db = client["tournament_organizer"]
 
 # -------------------
-# Email (Sendinblue / Bervo)
+# Helpers (password, otp, jwt)
 # -------------------
-configuration = Configuration()
-configuration.api_key['api-key'] = BERVO_KEY
-api_instance = TransactionalEmailsApi(ApiClient(configuration))
-
-# -------------------
-# Helpers
-# -------------------
-
-def get_time_left():
-    jwt_data= get_jwt()
-    exp = jwt_data["exp"]
-    time_left = exp - int(datetime.now().timestamp())
-    return time_left
-
-
-
-def hashpassword(pwd: str):
+def hashpassword(pwd: str) -> str:
     return hashlib.sha256(pwd.encode()).hexdigest()
 
-def generate_otp(length=6):
-    return ''.join(str(random.randint(0, 9)) for _ in range(length))
+def generate_otp(length: int = 6) -> str:
+    return "".join(str(random.randint(0, 9)) for _ in range(length))
 
 async def send_otp_email(to_email: str, otp: str, username: str):
-    """
-    send_transac_email is blocking in the SDK, so run in thread to avoid blocking event loop.
-    """
+    """Send email in thread to avoid blocking the event loop."""
+    html = templates.get_template("otp_template.html").render(OTP_CODE=otp, USERNAME=username)
     email = SendSmtpEmail(
         sender={"name": "TOURNAMENT ORGANIZER", "email": "ignitozgaming@gmail.com"},
         to=[{"email": to_email}],
         subject="Your OTP Code",
-        html_content=render_template("otp_template.html", OTP_CODE=otp, USERNAME=username)
+        html_content=html,
     )
 
     def _send():
@@ -114,295 +92,337 @@ async def send_otp_email(to_email: str, otp: str, username: str):
             raise
 
     try:
-        # run blocking send in threadpool
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _send)
-        return {"status": "success", "message": "OTP email sent!"}
-    except ApiException as e:
-        return {"status": "error", "message": str(e)}
+        return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# -------------------
-# Middleware: API key check
-# -------------------
-@app.before_request
-def global_auth_check():
-    # endpoints that should bypass API key check
-    exempt_endpoints = {
-        'health', 'home',
-        'signup', 'host_signup',
-        'login', 'host_login',
-        'static', 'openapi'  # allow static files etc.
+def _now_ts() -> int:
+    return int(datetime.now().timestamp())
+
+def create_access_token(identity: Dict[str, Any]) -> str:
+    """
+    identity: dict with at least {"id": str, "role": "user"|"host"}
+    We'll embed a random csrf string inside the payload as well.
+    """
+    expires = datetime.now() + timedelta(minutes=ACCESS_TOKEN_EXPIRES_MINUTES)
+    csrf = uuid.uuid4().hex
+    payload = {
+        "sub": identity,
+        "exp": expires,
+        "iat": datetime.now(),
+        "csrf": csrf,
+        "type": "access",
     }
-    # For OPTIONS and exempt endpoints skip
-    if request.method == "OPTIONS":
-        return
+    token = jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return token
 
-    endpoint = (request.endpoint or "").split('.')[-1]
-    if endpoint in exempt_endpoints:
-        return
+def create_refresh_token(identity: Dict[str, Any]) -> str:
+    expires = datetime.now() + timedelta(days=REFRESH_TOKEN_EXPIRES_DAYS)
+    payload = {
+        "sub": identity,
+        "exp": expires,
+        "iat": datetime.now(),
+        "type": "refresh",
+    }
+    token = jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return token
 
-    api_key = request.headers.get('x-api-key')
+def decode_token(token: str) -> Dict[str, Any]:
+    try:
+        decoded = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return decoded
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+def get_time_left_from_payload(payload: Dict[str, Any]) -> int:
+    exp = payload.get("exp")
+    if not exp:
+        return 0
+    return int(exp) - _now_ts()
+
+# -------------------
+# API-Key Middleware
+# -------------------
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    exempt_routes = {
+        "/health", "/", "/auth/signup", "/auth/host_signup", "/auth/login",
+        "/auth/host_login", "/openapi.json"
+    }
+
+    if request.url.path in exempt_routes or request.method == "OPTIONS":
+        return await call_next(request)
+
+    api_key = request.headers.get("x-api-key")
     if api_key:
         api_key = hashlib.sha256(api_key.encode()).hexdigest()
-    if not api_key or api_key != EXPECTED_API_KEY:
-        return jsonify({"message": "Unauthorized"}), 401
+
+    # If EXPECTED_API_KEY unset, allow (helpful in dev). But you can enforce by setting env.
+    if EXPECTED_API_KEY:
+        if not api_key or api_key != EXPECTED_API_KEY:
+            return JSONResponse(status_code=401, content={"message": "Unauthorized"})
+
+    return await call_next(request)
 
 # -------------------
-# Auth & User endpoints
+# Auth utilities (depends)
 # -------------------
+def require_csrf(token_payload: dict, header_csrf: Optional[str]):
+    token_csrf = token_payload.get("csrf")
+    if not token_csrf or not header_csrf or header_csrf != token_csrf:
+        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
 
-@app.route("/auth/signup", methods=["POST", "OPTIONS"])
-async def signup():
-    data = await request.get_json()
-    required_keys = ["username", "email", "phone", "password"]
-    missing = [k for k in required_keys if k not in (data or {})]
-    if missing:
-        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
+async def get_current_identity(request: Request, x_csrf_token: Optional[str] = Header(None)):
+    """
+    Read access token from cookie 'access_token', decode & verify CSRF header.
+    Returns identity dict.
+    """
+    access_token = request.cookies.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Missing access token")
 
-    username = data["username"]
-    email = data["email"]
-    phone = data["phone"]
-    password = hashpassword(data["password"])
+    payload = decode_token(access_token)
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid token type")
 
-    # Check duplicates across user collection
-    query = {"$or": [{"username": username}, {"email": email}, {"phone": phone}]}
-    existing = await db.user_details.find_one(query)
-    if existing:
-        return jsonify({"status": "error", "message": "User with one of these details already exists"}), 409
+    # verify CSRF (double-submit)
+    require_csrf(payload, x_csrf_token)
+    identity = payload.get("sub")
+    if not identity:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    return payload, identity
 
-    user_doc = {
-        "username": username,
-        "email": email,
-        "phone": phone,
-        "password": password,
+# -------------------
+# Routes
+# -------------------
+@app.post("/auth/signup",status_code=201)
+async def signup(request: Request):
+    data = await request.json()
+    required = ["username", "email", "phone", "password"]
+    if any(k not in data for k in required):
+        raise HTTPException(status_code=400, detail=f"Missing fields. Required: {required}")
+
+    query = {"$or": [{"username": data["username"]}, {"email": data["email"]}, {"phone": data["phone"]}]}
+    if await db.user_details.find_one(query):
+        raise HTTPException(status_code=409, detail="User already exists")
+
+    await db.user_details.insert_one({
+        "username": data["username"],
+        "email": data["email"],
+        "phone": data["phone"],
+        "password": hashpassword(data["password"]),
         "Verified": False,
         "created_at": datetime.now()
-    }
-    await db.user_details.insert_one(user_doc)
-    return jsonify({"status": "success", "message": "User registered"}), 201
+    })
+    return {"status": "success", "message": "User registered"}
 
+@app.post("/auth/host_signup",status_code=201)
+async def host_signup(request: Request):
+    data = await request.json()
+    required = ["username", "email", "phone", "password"]
+    if any(k not in data for k in required):
+        raise HTTPException(status_code=400, detail=f"Missing fields. Required: {required}")
 
-@app.route("/auth/host_signup", methods=["POST", "OPTIONS"])
-async def host_signup():
-    data = await request.get_json()
-    required_keys = ["username", "email", "phone", "password"]
-    missing = [k for k in required_keys if k not in (data or {})]
-    if missing:
-        return jsonify({"status": "error", "message": f"Missing keys: {missing}"}), 400
+    query = {"$or": [{"username": data["username"]}, {"email": data["email"]}, {"phone": data["phone"]}]}
+    if await db.host_details.find_one(query):
+        raise HTTPException(status_code=409, detail="Host already exists")
 
-    username = data["username"]
-    email = data["email"]
-    phone = data["phone"]
-    password = hashpassword(data["password"])
-
-    query = {"$or": [{"username": username}, {"email": email}, {"phone": phone}]}
-    existing = await db.host_details.find_one(query)
-    if existing:
-        return jsonify({"status": "error", "message": "Host with one of these details already exists"}), 409
-
-    host_doc = {
-        "username": username,
-        "email": email,
-        "phone": phone,
-        "password": password,
+    await db.host_details.insert_one({
+        "username": data["username"],
+        "email": data["email"],
+        "phone": data["phone"],
+        "password": hashpassword(data["password"]),
         "inviteCode": uuid.uuid4().hex[:12],
         "Verified": False,
         "created_at": datetime.now()
-    }
-    await db.host_details.insert_one(host_doc)
-    return jsonify({"status": "success", "message": "Host registered"}), 201
+    })
+    return {"status": "success", "message": "Host registered"}
 
-
-@app.route("/auth/login", methods=["POST"])
-async def login():
-    data = await request.get_json()
+@app.post("/auth/login")
+async def login(response: Response, request: Request):
+    data = await request.json()
     email = data.get("email")
-    password = data.get("password")
-    if not email or not password:
-        return jsonify({"status": "error", "message": "Missing credentials"}), 400
+    pwd = data.get("password")
+    if not email or not pwd:
+        raise HTTPException(status_code=400, detail="Missing credentials")
 
-    hashed = hashpassword(password)
-    user = await db.user_details.find_one({"email": email, "password": hashed})
+    user = await db.user_details.find_one({"email": email, "password": hashpassword(pwd)})
     if not user:
-        return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
     identity = {"id": str(user["_id"]), "role": "user"}
-    access_token = create_access_token(identity=identity)
-    refresh_token = create_refresh_token(identity=identity)
+    access = create_access_token(identity)
+    refresh = create_refresh_token(identity)
+
+    # set cookies:
+    # access_token: HttpOnly, secure, SameSite=None
+    response.set_cookie(
+        key="access_token",
+        value=access,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/"
+    )
+    # csrf cookie (not HttpOnly) so front-end JS can read and add to header
+    payload = jwt.decode(access, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    csrf = payload.get("csrf")
+    if csrf:
+        response.set_cookie(
+            key="csrf_access",
+            value=csrf,
+            httponly=False,
+            secure=True,
+            samesite="none",
+            path="/"
+        )
+
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/auth/refresh"
+    )
+
     user.pop("password", None)
-    resp = jsonify({"status": "success", "message": "Logged in", "role": "user","details":user,"isAuthenticated":True})
-    set_access_cookies(resp, access_token)
-    set_refresh_cookies(resp, refresh_token)
-    # optionally return CSRF token for front-end to include in header of subsequent requests
-    resp.headers["X-CSRF-Token"] = get_csrf_token(access_token)
-    resp.headers["Time-Left"] = get_time_left()
-    return resp, 200
+    response.status_code = 200
+    response.headers["X-CSRF-Token"] = csrf or ""
+    response.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    return {"status": "success", "message": "Logged in", "role": "user", "details": user, "isAuthenticated": True}
 
-
-@app.route("/auth/host_login", methods=["POST"])
-async def host_login():
-    data = await request.get_json()
+@app.post("/auth/host_login")
+async def host_login(response: Response, request: Request):
+    data = await request.json()
     email = data.get("email")
-    password = data.get("password")
-    if not email or not password:
-        return jsonify({"status": "error", "message": "Missing credentials"}), 400
+    pwd = data.get("password")
+    if not email or not pwd:
+        raise HTTPException(status_code=400, detail="Missing credentials")
 
-    hashed = hashpassword(password)
-    host = await db.host_details.find_one({"email": email, "password": hashed})
+    host = await db.host_details.find_one({"email": email, "password": hashpassword(pwd)})
     if not host:
-        return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
     identity = {"id": str(host["_id"]), "role": "host"}
-    access_token = create_access_token(identity=identity)
-    refresh_token = create_refresh_token(identity=identity)
+    access = create_access_token(identity)
+    refresh = create_refresh_token(identity)
+
+    response.set_cookie("access_token", access, httponly=True, secure=True, samesite="none", path="/")
+    payload = jwt.decode(access, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    csrf = payload.get("csrf")
+    if csrf:
+        response.set_cookie("csrf_access", csrf, httponly=False, secure=True, samesite="none", path="/")
+
+    response.set_cookie("refresh_token", refresh, httponly=True, secure=True, samesite="none", path="/auth/refresh")
+
     host.pop("password", None)
-    resp = jsonify({"status": "success", "message": "Logged in", "role": "host","details":host,"isAuthenticated":True})
-    set_access_cookies(resp, access_token)
-    set_refresh_cookies(resp, refresh_token)
-    resp.headers["X-CSRF-Token"] = get_csrf_token(access_token)
-    resp.headers["Time-Left"] = get_time_left()
-    return resp, 200
+    response.status_code = 200
+    response.headers["X-CSRF-Token"] = csrf or ""
+    response.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    return {"status": "success", "message": "Logged in", "role": "host", "details": host, "isAuthenticated": True}
 
+@app.post("/auth/logout")
+async def logout(response: Response):
+    # clear cookies
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie("refresh_token", path="/auth/refresh")
+    response.delete_cookie("csrf_access", path="/")
+    return {"status": "success", "message": "Logged out", "isAuthenticated": False}
 
-@app.route("/auth/logout", methods=["POST", "OPTIONS"])
-async def logout():
-    resp = jsonify({"status": "success", "message": "Logged out", "isAuthenticated": False})
-    unset_jwt_cookies(resp)
-    return resp, 200
+@app.post("/auth/refresh")
+async def refresh(response: Response, request: Request):
+    # read refresh_token cookie
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
 
+    payload = decode_token(refresh_token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid token type")
 
-# Refresh endpoint to mint new access token using refresh cookie
-@app.route("/auth/refresh", methods=["POST"])
-@jwt_required(refresh=True)
-async def refresh():
-    identity = get_jwt_identity()
-    access_token = create_access_token(identity=identity)
-    resp = jsonify({"status": "success", "message": "Token refreshed"})
-    set_access_cookies(resp, access_token)
-    resp.headers["X-CSRF-Token"] = get_csrf_token(access_token)
-    resp.headers["Time-Left"] = get_time_left()
-    return resp, 200
+    identity = payload.get("sub")
+    if not identity:
+        raise HTTPException(status_code=401, detail="Invalid refresh payload")
 
-# Protected user info
-@app.route("/auth/me", methods=["GET"])
-@jwt_required()
-async def me():
-    identity = get_jwt_identity()
-    user_id = identity.get("id")
-    role = identity.get("role")
-    #access_token = create_access_token(identity=identity)
-    collection = db.user_details if role == "user" else db.host_details
-    user = await collection.find_one({"_id": ObjectId(user_id)})
-    if not user:
-        return jsonify({"status": "error", "message": "User not found"}), 404
-    user["_id"] = str(user["_id"])
-    # Do not return password
-    user.pop("password", None)
-    resp = jsonify({"status": "success", "details": user, "role": role,"isAuthenticated":True})
-    resp.headers["Time-Left"] = get_time_left()
-    #set_access_cookies(resp, access_token)
-    #resp.headers["X-CSRF-Token"] = get_csrf_token(access_token)
-    return resp, 200
+    new_access = create_access_token(identity)
+    response.set_cookie("access_token", new_access, httponly=True, secure=True, samesite="none", path="/")
+    new_payload = jwt.decode(new_access, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    csrf = new_payload.get("csrf")
+    if csrf:
+        response.set_cookie("csrf_access", csrf, httponly=False, secure=True, samesite="none", path="/")
+    response.headers["X-CSRF-Token"] = csrf or ""
+    response.headers["Time-Left"] = str(get_time_left_from_payload(new_payload))
+    return {"status": "success", "message": "Token refreshed"}
 
-# -------------------
+@app.get("/auth/me")
+async def me(request: Request, x_csrf_token: Optional[str] = Header(None)):
+    payload, identity = await get_current_identity(request, x_csrf_token)
+    collection = db.user_details if identity["role"] == "user" else db.host_details
+    doc = await collection.find_one({"_id": ObjectId(identity["id"])})
+    if not doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    doc["_id"] = str(doc["_id"])
+    doc.pop("password", None)
+    resp = JSONResponse({"status": "success", "details": doc, "role": identity["role"], "isAuthenticated": True})
+    resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    return resp
+
 # OTP endpoints
-# -------------------
-@app.route("/auth/generate_otp", methods=["GET"])
-@jwt_required()
-async def gen_email_with_otp():
-    identity = get_jwt_identity()
-    user_id = identity.get("id")
-    role = identity.get("role")
-
-    collection = db.user_details if role == "user" else db.host_details
-    user = await collection.find_one({"_id": ObjectId(user_id)}, {"email": 1, "username": 1})
+@app.get("/auth/generate_otp")
+async def generate_otp_route(request: Request, x_csrf_token: Optional[str] = Header(None)):
+    payload, identity = await get_current_identity(request, x_csrf_token)
+    collection = db.user_details if identity["role"] == "user" else db.host_details
+    user = await collection.find_one({"_id": ObjectId(identity["id"])}, {"email": 1, "username": 1})
     if not user:
-        return jsonify({"status": "error", "message": "User not found"}), 404
+        raise HTTPException(status_code=404, detail="User not found")
 
     otp = generate_otp()
-    expiry_time = datetime.now() + timedelta(minutes=5)
-
-    await collection.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"otp": otp, "otp_expiry": expiry_time}}
-    )
+    expiry = datetime.now() + timedelta(minutes=5)
+    await collection.update_one({"_id": ObjectId(identity["id"])}, {"$set": {"otp": otp, "otp_expiry": expiry}})
 
     res = await send_otp_email(user["email"], otp, user.get("username", "User"))
-    if res["status"] == "success":
-        resp = jsonify({"status": "success", "message": "OTP generated and email sent"})
-        resp.headers["Time-Left"] = get_time_left()
-        return resp, 200
+    if res.get("status") == "success":
+        resp = JSONResponse({"status": "success", "message": "OTP generated and email sent"})
+        resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+        return resp
     else:
-        resp = jsonify({"status": "error", "message": res["message"]}), 500
-        resp.headers["Time-Left"] = get_time_left()
-        return resp,500
+        raise HTTPException(status_code=500, detail=res.get("message"))
 
-
-@app.route("/auth/verify_otp", methods=["POST"])
-@jwt_required()
-async def verify_otp():
-    data = await request.get_json()
+@app.post("/auth/verify_otp")
+async def verify_otp_route(request: Request, x_csrf_token: Optional[str] = Header(None)):
+    payload, identity = await get_current_identity(request, x_csrf_token)
+    data = await request.json()
     otp = (data or {}).get("otp")
     if not otp:
-        resp = jsonify({"status": "error", "message": "Missing otp"})
-        resp.headers["Time-Left"] = get_time_left()
-        return resp,400
+        raise HTTPException(status_code=400, detail="Missing otp")
 
-    identity = get_jwt_identity()
-    user_id = identity.get("id")
-    role = identity.get("role")
-    collection = db.user_details if role == "user" else db.host_details
-    user = await collection.find_one({"_id": ObjectId(user_id)})
-
+    collection = db.user_details if identity["role"] == "user" else db.host_details
+    user = await collection.find_one({"_id": ObjectId(identity["id"])})
     if not user or "otp" not in user or "otp_expiry" not in user:
-        resp = jsonify({"status": "error", "message": "OTP not found. Please generate a new one."})
-        resp.headers["Time-Left"] = get_time_left()
-        return resp,404
+        raise HTTPException(status_code=404, detail="OTP not found. Please generate a new one.")
 
     if datetime.now() > user["otp_expiry"]:
-        resp = jsonify({"status": "error", "message": "OTP has expired. Please generate a new one."}), 400
-        resp.headers["Time-Left"] = get_time_left()
-        return resp,400
+        raise HTTPException(status_code=400, detail="OTP has expired. Please generate a new one.")
 
     if user["otp"] != otp:
-        resp = jsonify({"status": "error", "message": "Invalid OTP."})
-        resp.headers["Time-Left"] = get_time_left()
-        return resp,400
+        raise HTTPException(status_code=400, detail="Invalid OTP.")
 
-    # OTP is valid: mark verified and remove otp fields
-    await collection.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"Verified": True}, "$unset": {"otp": "", "otp_expiry": ""}}
-    )
-    resp = jsonify({"status": "success", "message": "OTP verified successfully."})
-    resp.headers["Time-Left"] = get_time_left()
-    return resp, 200
+    await collection.update_one({"_id": ObjectId(identity["id"])}, {"$set": {"Verified": True}, "$unset": {"otp": "", "otp_expiry": ""}})
+    resp = JSONResponse({"status": "success", "message": "OTP verified successfully."})
+    resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    return resp
 
-# -------------------
-# Health & root
-# -------------------
-@app.route("/health", methods=["GET"])
-async def health():
-    return jsonify({"status": "success", "message": "API is healthy"}), 200
+# Health + root
+@app.get("/health")
+def health():
+    return {"status": "success", "message": "API healthy"}
 
-@app.route("/", methods=["GET"])
-async def home():
-    return jsonify({"status": "success", "message": "Welcome to the Tournament Organizer API"}), 200
-
-# -------------------
-# Error handler for JWT (optional customization)
-# -------------------
-from flask_jwt_extended.exceptions import NoAuthorizationError
-@app.errorhandler(NoAuthorizationError)
-def handle_no_auth(e):
-    return jsonify({"status": "error", "message": "Missing or invalid token"}), 401
-
-# -------------------
-# Run (development)
-# -------------------
-if __name__ == "__main__":
-    # Flask will accept async view functions on recent versions.
-    # In production, run with an ASGI server (hypercorn/uvicorn) for best performance.
-    app.run()
+@app.get("/")
+def home():
+    return {"status": "success", "message": "Welcome to Tournament Organizer API"}

@@ -1,11 +1,9 @@
 requests
-flask
+fastapi
 pymongo
-flask-cors
 python-dotenv
-pyjwt
-flask-login
 sib_api_v3_sdk
-flask_jwt_extended
-uvicorn
+PyJWT
 motor
+itsdangerous
+uvicorn
