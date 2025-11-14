@@ -6,4 +6,5 @@ sib_api_v3_sdk
 PyJWT
 motor
 itsdangerous
+jinja2 
 uvicorn
