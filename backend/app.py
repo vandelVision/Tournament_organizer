@@ -421,6 +421,7 @@ async def me(request: Request, x_csrf_token: Optional[str] = Header(None)):
     doc["_id"] = str(doc["_id"])
     doc.pop("password", None)
     resp = JSONResponse({"status": "success", "details": doc, "role": identity["role"], "isAuthenticated": True})
+    resp.headers["X-CSRF-Token"] = x_csrf_token or ""
     resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
     return resp
 
