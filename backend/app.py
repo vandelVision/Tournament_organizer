@@ -103,31 +103,35 @@ def _now_ts() -> int:
 
 def create_access_token(identity: Dict[str, Any]) -> str:
     """
-    identity: dict with at least {"id": str, "role": "user"|"host"}
-    We'll embed a random csrf string inside the payload as well.
+    identity: {"id": str, "role": "user" | "host"}
     """
     expires = datetime.now() + timedelta(minutes=ACCESS_TOKEN_EXPIRES_MINUTES)
     csrf = uuid.uuid4().hex
+
     payload = {
-        "sub": identity,
-        "exp": expires,
-        "iat": datetime.now(),
+        "sub": identity["id"],   # MUST be string
+        "role": identity["role"],  # Extra info
         "csrf": csrf,
         "type": "access",
+        "exp": expires,
+        "iat": datetime.now(),
     }
+
     token = jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
     return token
 
 def create_refresh_token(identity: Dict[str, Any]) -> str:
     expires = datetime.now() + timedelta(days=REFRESH_TOKEN_EXPIRES_DAYS)
+
     payload = {
-        "sub": identity,
+        "sub": identity["id"],       # MUST be a string
+        "role": identity["role"],    # store role separately
+        "type": "refresh",
         "exp": expires,
         "iat": datetime.now(),
-        "type": "refresh",
     }
-    token = jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
-    return token
+
+    return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 def decode_token(token: str) -> Dict[str, Any]:
     try:
@@ -176,26 +180,40 @@ def require_csrf(token_payload: dict, header_csrf: Optional[str]):
     if not token_csrf or not header_csrf or header_csrf != token_csrf:
         raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
 
-async def get_current_identity(request: Request, x_csrf_token: Optional[str] = Header(None)):
+async def get_current_identity(
+    request: Request, 
+    x_csrf_token: Optional[str] = Header(None)
+):
     """
-    Read access token from cookie 'access_token', decode & verify CSRF header.
-    Returns identity dict.
+    Reads access token from cookies, verifies CSRF,
+    returns (payload, identity_dict)
     """
+
     access_token = request.cookies.get("access_token")
     if not access_token:
         raise HTTPException(status_code=401, detail="Missing access token")
 
     payload = decode_token(access_token)
+
     if payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token type")
 
-    # verify CSRF (double-submit)
+    # CSRF verification
     require_csrf(payload, x_csrf_token)
-    identity = payload.get("sub")
-    if not identity:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-    return payload, identity
 
+    # Extract user_id + role
+    user_id = payload.get("sub")
+    role = payload.get("role")
+
+    if not user_id or not role:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    identity = {
+        "id": user_id,
+        "role": role
+    }
+
+    return payload, identity
 # -------------------
 # Routes
 # -------------------
@@ -336,27 +354,58 @@ async def logout(response: Response):
 
 @app.post("/auth/refresh")
 async def refresh(response: Response, request: Request):
-    # read refresh_token cookie
+    # Read refresh token cookie
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Missing refresh token")
 
     payload = decode_token(refresh_token)
+
+    # Must be a refresh token
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="Invalid token type")
 
-    identity = payload.get("sub")
-    if not identity:
+    user_id = payload.get("sub")      # this is a string
+    role = payload.get("role")        # stored separately
+
+    if not user_id or not role:
         raise HTTPException(status_code=401, detail="Invalid refresh payload")
 
+    # Rebuild identity dict for access token
+    identity = {"id": user_id, "role": role}
+
+    # Create new access token
     new_access = create_access_token(identity)
-    response.set_cookie("access_token", new_access, httponly=True, secure=True, samesite="none", path="/")
+
+    # Store new access token in cookie
+    response.set_cookie(
+        "access_token",
+        new_access,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/"
+    )
+
+    # Extract payload to send CSRF token back
     new_payload = jwt.decode(new_access, SECRET_KEY, algorithms=[JWT_ALGORITHM])
     csrf = new_payload.get("csrf")
+
+    # Public CSRF cookie for frontend
     if csrf:
-        response.set_cookie("csrf_access", csrf, httponly=False, secure=True, samesite="none", path="/")
+        response.set_cookie(
+            "csrf_access",
+            csrf,
+            httponly=False,
+            secure=True,
+            samesite="none",
+            path="/"
+        )
+
+    # Send CSRF in header (optional)
     response.headers["X-CSRF-Token"] = csrf or ""
     response.headers["Time-Left"] = str(get_time_left_from_payload(new_payload))
+
     return {"status": "success", "message": "Token refreshed"}
 
 @app.get("/auth/me")
@@ -420,9 +469,9 @@ async def verify_otp_route(request: Request, x_csrf_token: Optional[str] = Heade
 
 # Health + root
 @app.get("/health")
-def health():
+async def health():
     return {"status": "success", "message": "API healthy"}
 
 @app.get("/")
-def home():
+async def home():
     return {"status": "success", "message": "Welcome to Tournament Organizer API"}
