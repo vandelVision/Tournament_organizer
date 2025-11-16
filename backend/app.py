@@ -312,6 +312,7 @@ async def login(response: Response, request: Request):
     response.status_code = 200
     response.headers["X-CSRF-Token"] = csrf or ""
     response.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    user["_id"] = str(user["_id"])
     return {"status": "success", "message": "Logged in", "role": "user", "details": user, "isAuthenticated": True}
 
 @app.post("/auth/host_login")
@@ -342,6 +343,7 @@ async def host_login(response: Response, request: Request):
     response.status_code = 200
     response.headers["X-CSRF-Token"] = csrf or ""
     response.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    host["_id"] = str(host["_id"])
     return {"status": "success", "message": "Logged in", "role": "host", "details": host, "isAuthenticated": True}
 
 @app.post("/auth/logout")
