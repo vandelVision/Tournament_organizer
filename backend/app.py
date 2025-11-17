@@ -7,6 +7,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
+from fastapi.encoders import jsonable_encoder 
 from bson import ObjectId
 from fastapi import (
     FastAPI, Request, Depends, HTTPException, status, Response, Header
@@ -313,7 +314,7 @@ async def login(response: Response, request: Request):
     response.headers["X-CSRF-Token"] = csrf or ""
     response.headers["Time-Left"] = str(get_time_left_from_payload(payload))
     user["_id"] = str(user["_id"])
-    return {"status": "success", "message": "Logged in", "role": "user", "details": user, "isAuthenticated": True}
+    return {"status": "success", "message": "Logged in", "role": "user", "details": jsonable_encoder(user), "isAuthenticated": True}
 
 @app.post("/auth/host_login")
 async def host_login(response: Response, request: Request):
@@ -344,7 +345,7 @@ async def host_login(response: Response, request: Request):
     response.headers["X-CSRF-Token"] = csrf or ""
     response.headers["Time-Left"] = str(get_time_left_from_payload(payload))
     host["_id"] = str(host["_id"])
-    return {"status": "success", "message": "Logged in", "role": "host", "details": host, "isAuthenticated": True}
+    return {"status": "success", "message": "Logged in", "role": "host", "details": jsonable_encoder(host), "isAuthenticated": True}
 
 @app.post("/auth/logout")
 async def logout(response: Response):
@@ -420,7 +421,7 @@ async def me(request: Request, x_csrf_token: Optional[str] = Header(None)):
 
     doc["_id"] = str(doc["_id"])
     doc.pop("password", None)
-    resp = JSONResponse({"status": "success", "details": doc, "role": identity["role"], "isAuthenticated": True})
+    resp = JSONResponse({"status": "success", "details": jsonable_encoder(doc), "role": identity["role"], "isAuthenticated": True})
     resp.headers["X-CSRF-Token"] = x_csrf_token or ""
     resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
     return resp
