@@ -348,12 +348,13 @@ async def host_login(response: Response, request: Request):
     return {"status": "success", "message": "Logged in", "role": "host", "details": jsonable_encoder(host), "isAuthenticated": True}
 
 @app.post("/auth/logout")
-async def logout(response: Response):
-    # clear cookies
+async def logout(response: Response, request: Request, x_csrf_token: Optional[str] = Header(None)):
+    payload,identity = await get_current_identity(request, x_csrf_token)
+    role = identity["role"]
     response.delete_cookie("access_token", path="/",samesite="none",httponly=True,secure=True)
     response.delete_cookie("refresh_token", path="/auth/refresh",samesite="none",httponly=True,secure=True)
     response.delete_cookie("csrf_access", path="/",samesite="none",httponly=False,secure=True)
-    return {"status": "success", "message": "Logged out", "isAuthenticated": False}
+    return {"status": "success", "message": "Logged out","role":role, "isAuthenticated": False}
 
 @app.post("/auth/refresh")
 async def refresh(response: Response, request: Request):
