@@ -350,9 +350,9 @@ async def host_login(response: Response, request: Request):
 @app.post("/auth/logout")
 async def logout(response: Response):
     # clear cookies
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/auth/refresh")
-    response.delete_cookie("csrf_access", path="/")
+    response.delete_cookie("access_token", path="/",samesite="none",httponly=True)
+    response.delete_cookie("refresh_token", path="/auth/refresh",samesite="none",httponly=True)
+    response.delete_cookie("csrf_access", path="/",samesite="none",httponly=False)
     return {"status": "success", "message": "Logged out", "isAuthenticated": False}
 
 @app.post("/auth/refresh")
