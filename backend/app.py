@@ -513,6 +513,28 @@ async def view_tournaments(request: Request, x_csrf_token: Optional[str] = Heade
     resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
     return resp
 
+##edit created tournament ##
+@app.put("/tournament/edit/{tournament_id}")
+async def edit_tournament(tournament_id: str, request: Request, x_csrf_token: Optional[str] = Header(None)):
+    payload, identity = await get_current_identity(request, x_csrf_token)
+    if identity["role"] != "host":
+        raise HTTPException(status_code=403, detail="Only hosts can edit tournaments")
+
+    data = await request.json()
+    update_result = await db.tournaments.update_one(
+        {"_id": ObjectId(tournament_id), "host_id": identity["id"]},
+        {"$set": data}
+    )
+
+    if update_result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Tournament not found or you do not have permission to edit it")
+
+    resp = JSONResponse({"status": "success", "message": "Tournament updated"})
+    resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    return resp
+
+
+
 
 # Health + root
 @app.get("/health")
