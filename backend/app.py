@@ -496,6 +496,23 @@ async def create_tournament(request: Request, x_csrf_token: Optional[str] = Head
     resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
     return resp
 
+## Getting tournaments created by host ###
+@app.get("/view_tournaments")
+async def view_tournaments(request: Request, x_csrf_token: Optional[str] = Header(None)):
+    payload, identity = await get_current_identity(request, x_csrf_token)
+    if identity["role"] != "host":
+        raise HTTPException(status_code=403, detail="Only hosts can view their tournaments")
+
+    tournaments_cursor = db.tournaments.find({"host_id": identity["id"]})
+    tournaments = []
+    async for tournament in tournaments_cursor:
+        tournament["_id"] = str(tournament["_id"])
+        tournaments.append(tournament)
+
+    resp = JSONResponse({"status": "success", "tournaments": jsonable_encoder(tournaments)})
+    resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    return resp
+
 
 # Health + root
 @app.get("/health")
