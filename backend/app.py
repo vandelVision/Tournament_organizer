@@ -472,6 +472,31 @@ async def verify_otp_route(request: Request, x_csrf_token: Optional[str] = Heade
     resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
     return resp
 
+#####Creating tournament endpoints#####
+
+##for creating a new tournament ###
+
+@app.post("/tournament/create", status_code=201)
+async def create_tournament(request: Request, x_csrf_token: Optional[str] = Header(None)):
+    payload, identity = await get_current_identity(request, x_csrf_token)
+    if identity["role"] != "host":
+        raise HTTPException(status_code=403, detail="Only hosts can create tournaments")
+
+    data = await request.json()
+    required_fields = ["gameName", "gameMode", "tournamentDate",
+                        "tournamentTime","registrationDate","registrationTime",
+                        "slots","prizePool","contactInfo","rules"]
+    if any(field not in data for field in required_fields):
+        raise HTTPException(status_code=400, detail=f"Missing fields. Required: {required_fields}")
+
+    data["host_id"] = identity["id"]
+
+    result = await db.tournaments.insert_one(data)
+    resp = JSONResponse({"status": "success", "message": "Tournament created", "tournament_id": str(result.inserted_id)})
+    resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    return resp
+
+
 # Health + root
 @app.get("/health")
 async def health():
