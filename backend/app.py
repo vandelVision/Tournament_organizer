@@ -30,7 +30,7 @@ from jwt import PyJWTError
 # -------------------
 SECRET_KEY = os.getenv("SECRET_KEY", "MY_SECRET_KEY_123")
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRES_MINUTES = int(os.getenv("JWT_ACCESS_MINUTES", "10"))
+ACCESS_TOKEN_EXPIRES_MINUTES = int(os.getenv("JWT_ACCESS_MINUTES", "1"))
 REFRESH_TOKEN_EXPIRES_DAYS = int(os.getenv("JWT_REFRESH_DAYS", "7"))
 
 MONGO_URI = os.getenv("MONGO_URI")
@@ -544,3 +544,4 @@ async def health():
 @app.get("/")
 async def home():
     return {"status": "success", "message": "Welcome to Tournament Organizer API"}
+
