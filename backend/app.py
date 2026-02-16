@@ -533,6 +533,57 @@ async def edit_tournament(tournament_id: str, request: Request, x_csrf_token: Op
     resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
     return resp
 
+##fetch users registered for a tournament##
+@app.get("/tournament/{tournament_id}/view_details")
+async def get_registered_users(tournament_id: str, request: Request, x_csrf_token: Optional[str] = Header(None)):
+    payload, identity = await get_current_identity(request, x_csrf_token)
+    if identity["role"] != "host":
+        raise HTTPException(status_code=403, detail="Only hosts can view tournament details")
+
+    tournament = await db.tournaments.find_one({"_id": ObjectId(tournament_id), "host_id": identity["id"]})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found or you do not have permission to view it")
+
+    registrations_cursor = db.registrations.find({"tournament_id": tournament_id})
+    registered_users = []
+    async for registration in registrations_cursor:
+        user = await db.user_details.find_one({"_id": ObjectId(registration["user_id"])}, {"username": 1, "email": 1, "phone": 1})
+        if user:
+            registered_users.append({
+                "username": user["username"],
+                "email": user["email"],
+                "phone": user["phone"],
+            })
+
+    resp = JSONResponse({"status": "success", "registered_users": jsonable_encoder(registered_users)})
+    resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    return resp
+
+
+##update status of tournament##
+@app.put("/tournament/{tournament_id}/update_tournament_status")
+async def update_registration_status(tournament_id: str, request: Request, x_csrf_token: Optional[str] = Header(None)):
+    payload, identity = await get_current_identity(request, x_csrf_token)
+    if identity["role"] != "host":
+        raise HTTPException(status_code=403, detail="Only hosts can update tournament status")
+
+    data = await request.json()
+    new_status = data.get("status")
+    if not new_status:
+        raise HTTPException(status_code=400, detail="Missing status field")
+
+    update_result = await db.tournaments.update_one(
+        {"_id": ObjectId(tournament_id), "host_id": identity["id"]},
+        {"$set": {"status": new_status}}
+    )
+
+    if update_result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Tournament not found or you do not have permission to update it")
+
+    resp = JSONResponse({"status": "success", "message": "Tournament status updated"})
+    resp.headers["Time-Left"] = str(get_time_left_from_payload(payload))
+    return resp
+
 
 
 
